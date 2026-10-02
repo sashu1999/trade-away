@@ -2,7 +2,10 @@
 
 An AI trading agent that paper trades US stocks, ETFs and crypto on live data, so results can be judged before any real money is involved. The full design is in the [system design doc](https://claude.ai/code/artifact/066b0060-85dc-41a4-8088-6ddcddffdf10).
 
-This is **Phase 0: foundation**. It streams live prices into SQLite, screens the whole US market each night, backfills history and pulls news, and a dashboard shows it all. It doesn't trade yet.
+Built so far:
+
+- **Phase 0, foundation:** live prices into SQLite, a nightly screen of the whole US market, history backfill, news and a dashboard.
+- **Phase 1, rules-only baseline:** two strategies, hard risk limits, a backtester and paper trading with a decision journal. No AI yet. This is the baseline the AI agent has to beat in Phase 2.
 
 ## What's here
 
@@ -14,7 +17,29 @@ This is **Phase 0: foundation**. It streams live prices into SQLite, screens the
 | `trade-away stream` | Streams live minute bars and trades: the top 30 screened stocks over IEX (the free plan's limit) plus BTC/USD and ETH/USD |
 | `trade-away news` | Saves the last 24h of Alpaca news to the events table |
 | `trade-away health` | Lists gaps in the crypto stream over the last week, which is the Phase 0 exit gate |
+| `trade-away backtest` | Backtests both strategies on stored daily bars with a 0.1% cost per side, and compares the result with buying and holding SPY |
+| `trade-away run` | Daily trading run on the Alpaca paper account: exits first, then entries, all through the risk layer. Use `--dry-run` to see the decisions without sending orders |
+| `trade-away stops` | Enforces crypto stop-losses from streamed prices. Alpaca can't attach stops to crypto orders; stock stops are placed at Alpaca along with the entry |
 | `streamlit run dashboard/app.py` | Dashboard: latest prices, stream health, charts, today's universe |
+
+## Phase 1 strategies and limits
+
+| Strategy | Buys when | Sells when | Stop |
+| --- | --- | --- | --- |
+| Trend following (`trend`) | 20-day average crosses above the 50-day | 20-day falls back below the 50-day | 3 x ATR(14) below entry |
+| Dip buying (`dip`) | RSI(2) under 10 while price is above the 200-day average | Close above the 5-day average | 2 x ATR(14) below entry |
+
+Risk limits live in `src/trade_away/risk.py`, and no strategy or agent can override them:
+
+- Each trade risks 1% of equity.
+- Each symbol is capped at 10% of equity.
+- Total exposure is capped at 80% in stocks and 30% in crypto.
+- At most 10 positions are open at once.
+- New entries stop after a 3% loss in a day, and also after a 15% drawdown from the peak.
+- Every entry needs a stop-loss.
+- No shorting and no leverage.
+- Only screened symbols can be traded.
+- Data more than 4 days old is rejected.
 
 ## Setup
 
@@ -30,6 +55,8 @@ This is **Phase 0: foundation**. It streams live prices into SQLite, screens the
    trade-away check
    trade-away screen
    trade-away backfill
+   trade-away backtest    # how the rules would have done
+   trade-away run --dry-run
    trade-away stream      # Ctrl+C to stop
    ```
 

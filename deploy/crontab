@@ -1,7 +1,12 @@
 # Nightly jobs (times are UTC). Install with: crontab deploy/crontab
 # 01:30 UTC is after the US close in both EST and EDT.
 30 1 * * 2-6  cd /home/ubuntu/trade-away && .venv/bin/trade-away screen >> data/cron.log 2>&1
-0  2 * * 2-6  cd /home/ubuntu/trade-away && .venv/bin/trade-away backfill --years 0.05 >> data/cron.log 2>&1
+0  2 * * *    cd /home/ubuntu/trade-away && .venv/bin/trade-away backfill --years 0.05 >> data/cron.log 2>&1
 # Restart the stream after the screen so it picks up the new top names.
 5  2 * * 2-6  sudo systemctl restart trade-away-stream
+# Phase 1 rules-only trading: stocks queue for the next open; weekends trade crypto only.
+15 2 * * 2-6  cd /home/ubuntu/trade-away && .venv/bin/trade-away run >> data/cron.log 2>&1
+15 2 * * 0,1  cd /home/ubuntu/trade-away && .venv/bin/trade-away run --crypto-only >> data/cron.log 2>&1
+# Crypto stop-losses (Alpaca can't attach stops to crypto orders).
+*/5 * * * *   cd /home/ubuntu/trade-away && .venv/bin/trade-away stops >> data/cron.log 2>&1
 */15 * * * *  cd /home/ubuntu/trade-away && .venv/bin/trade-away news >> data/cron.log 2>&1

@@ -49,6 +49,44 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_symbol_ts ON events (symbol, ts);
+
+-- Every order idea and what the risk layer did with it, approved or not.
+CREATE TABLE IF NOT EXISTS decisions (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        TEXT NOT NULL,
+    account   TEXT NOT NULL,            -- 'rules' for the Phase 1 baseline
+    strategy  TEXT NOT NULL,
+    symbol    TEXT NOT NULL,
+    side      TEXT NOT NULL,
+    price     REAL,
+    stop      REAL,
+    qty       REAL,
+    approved  INTEGER NOT NULL,
+    risk_note TEXT,
+    reason    TEXT,
+    order_id  TEXT,
+    dry_run   INTEGER NOT NULL DEFAULT 0
+);
+
+-- Which strategy owns each open position, and its protective stop.
+CREATE TABLE IF NOT EXISTS open_trades (
+    account   TEXT NOT NULL,
+    symbol    TEXT NOT NULL,
+    strategy  TEXT NOT NULL,
+    opened_ts TEXT NOT NULL,
+    entry     REAL NOT NULL,
+    qty       REAL NOT NULL,
+    stop      REAL NOT NULL,
+    PRIMARY KEY (account, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS equity_log (
+    account TEXT NOT NULL,
+    ts      TEXT NOT NULL,
+    equity  REAL NOT NULL,
+    cash    REAL NOT NULL,
+    PRIMARY KEY (account, ts)
+);
 """
 
 
@@ -126,6 +164,19 @@ class Store:
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
             return self._conn.execute(sql, params).fetchall()
+
+    def execute(self, sql: str, params: tuple = ()) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(sql, params)
+
+    def daily_bars(self, symbol: str, limit: int = 260) -> list[sqlite3.Row]:
+        """Most recent daily bars for one symbol, oldest first."""
+        rows = self.query(
+            "SELECT ts, open, high, low, close, volume FROM bars "
+            "WHERE symbol = ? AND timeframe = '1Day' ORDER BY ts DESC LIMIT ?",
+            (symbol, limit),
+        )
+        return rows[::-1]
 
     def latest_universe(self, limit: int | None = None) -> list[str]:
         sql = "SELECT symbol FROM universe WHERE as_of = (SELECT MAX(as_of) FROM universe) ORDER BY rank"

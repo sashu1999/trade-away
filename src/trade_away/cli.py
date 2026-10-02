@@ -81,6 +81,48 @@ def cmd_health(settings, store, args) -> None:
         sys.exit(1)
 
 
+def cmd_backtest(settings, store, args) -> None:
+    from .backtest import frame_from_rows, run_backtest
+    from .strategies import DEFAULT_STRATEGIES
+
+    strategies = tuple(s for s in DEFAULT_STRATEGIES if not args.strategy or s.name == args.strategy)
+    symbols = {s: "stock" for s in store.latest_universe(limit=args.top)}
+    symbols.update({s: "crypto" for s in settings.crypto_symbols})
+    bars = {s: frame_from_rows(store.daily_bars(s, limit=args.days)) for s in symbols}
+    bars = {s: df for s, df in bars.items() if not df.empty}
+    if not bars:
+        sys.exit("no daily bars in the database; run `trade-away screen` and `trade-away backfill` first")
+    if "SPY" not in bars and (spy := frame_from_rows(store.daily_bars("SPY", limit=args.days))).size:
+        bars["SPY"], symbols["SPY"] = spy, "stock"
+    result = run_backtest(bars, symbols, strategies, cost=args.cost)
+    for key, value in result.metrics().items():
+        print(f"{key:18} {value:,.4f}" if isinstance(value, float) else f"{key:18} {value}")
+    if result.rejections:
+        print("risk rejections:", ", ".join(f"{k} x{v}" for k, v in sorted(result.rejections.items())))
+
+
+def cmd_run(settings, store, args) -> None:
+    from .engine import run_daily
+    from .execution import AlpacaPaperBroker
+
+    _require_keys(settings)
+    actions = run_daily(settings, store, AlpacaPaperBroker(settings), top_n=args.top,
+                        crypto_only=args.crypto_only, dry_run=args.dry_run)
+    for a in actions:
+        verdict = f"APPROVED qty={a.decision.qty:g}" if a.decision.approved else "REJECTED"
+        print(f"{a.side:4} {a.symbol:10} {a.strategy:6} {verdict}: {a.decision.reason} | {a.reason}")
+    print(f"{len(actions)} signals{' (dry run, nothing sent)' if args.dry_run else ''}")
+
+
+def cmd_stops(settings, store, args) -> None:
+    from .engine import check_stops
+    from .execution import AlpacaPaperBroker
+
+    _require_keys(settings)
+    closed = check_stops(settings, store, AlpacaPaperBroker(settings))
+    print(f"stopped out: {', '.join(closed)}" if closed else "no stops hit")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="trade-away")
     sub = p.add_subparsers(dest="command", required=True)
@@ -96,12 +138,23 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--hours", type=int, default=24)
     h = sub.add_parser("health", help="report stream gaps (Phase 0 gate)")
     h.add_argument("--hours", type=float, default=24 * 7)
+    bt = sub.add_parser("backtest", help="backtest the rules-only strategies on stored daily bars")
+    bt.add_argument("--top", type=int, default=100)
+    bt.add_argument("--days", type=int, default=750)
+    bt.add_argument("--strategy", choices=["trend", "dip"])
+    bt.add_argument("--cost", type=float, default=0.001, help="per-side cost haircut")
+    r = sub.add_parser("run", help="daily rules-only trading run on the paper account")
+    r.add_argument("--top", type=int, default=100)
+    r.add_argument("--dry-run", action="store_true")
+    r.add_argument("--crypto-only", action="store_true", help="weekend runs: no new stock entries")
+    sub.add_parser("stops", help="enforce crypto stop-losses from the latest streamed prices")
     return p
 
 
 COMMANDS = {
     "check": cmd_check, "screen": cmd_screen, "backfill": cmd_backfill,
     "stream": cmd_stream, "news": cmd_news, "health": cmd_health,
+    "backtest": cmd_backtest, "run": cmd_run, "stops": cmd_stops,
 }
 
 
