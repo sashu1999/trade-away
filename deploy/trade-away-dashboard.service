@@ -1,0 +1,14 @@
+[Unit]
+Description=trade-away dashboard
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/trade-away
+# Bound to localhost; reach it through an SSH tunnel: ssh -L 8501:localhost:8501 ubuntu@<vm-ip>
+ExecStart=/home/ubuntu/trade-away/.venv/bin/streamlit run dashboard/app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

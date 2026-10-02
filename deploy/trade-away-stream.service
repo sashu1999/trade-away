@@ -1,0 +1,14 @@
+[Unit]
+Description=trade-away live market data stream
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/trade-away
+ExecStart=/home/ubuntu/trade-away/.venv/bin/trade-away stream
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
