@@ -52,6 +52,7 @@ class BacktestResult:
 def compute_metrics(equity: pd.Series, trades: list[Trade], benchmark: pd.Series | None = None) -> dict[str, float]:
     returns = equity.pct_change().dropna()
     years = max((equity.index[-1] - equity.index[0]).days / 365.25, 1e-9)
+    periods_per_year = len(returns) / years  # ~252 for stocks only, more once crypto adds weekends
     total = equity.iloc[-1] / equity.iloc[0] - 1
     closed = [t for t in trades if t.exit is not None]
     wins = [t.pnl for t in closed if t.pnl > 0]
@@ -59,7 +60,7 @@ def compute_metrics(equity: pd.Series, trades: list[Trade], benchmark: pd.Series
     out = {
         "total_return": total,
         "cagr": (1 + total) ** (1 / years) - 1 if total > -1 else -1.0,
-        "sharpe": float(returns.mean() / returns.std() * math.sqrt(252)) if returns.std() > 0 else 0.0,
+        "sharpe": float(returns.mean() / returns.std() * math.sqrt(periods_per_year)) if returns.std() > 0 else 0.0,
         "max_drawdown": float((1 - equity / equity.cummax()).max()),
         "trades": len(closed),
         "win_rate": len(wins) / len(closed) if closed else 0.0,
@@ -82,6 +83,9 @@ def run_backtest(
     """bars: symbol -> daily OHLCV DataFrame indexed by UTC timestamp, oldest first."""
     risk = RiskManager(limits)
     by_strategy = {s.name: s for s in strategies}
+    # Stock and crypto daily bars are stamped at different hours (exchange midnight vs. UTC offsets),
+    # so put every bar on its UTC calendar day; otherwise each day splits into two "dates".
+    bars = {s: df.set_axis(df.index.normalize()) for s, df in bars.items()}
     dates = sorted(set().union(*(df.index for df in bars.values())))
     cash = starting_cash
     open_trades: dict[str, Trade] = {}
@@ -102,10 +106,12 @@ def run_backtest(
     for date in dates:
         today = {s: df.loc[date] for s, df in bars.items() if date in df.index}
 
-        # 1. fill yesterday's decisions at today's open
+        # 1. fill earlier decisions at the open of the symbol's next bar
+        waiting = []
         for side, symbol, qty, strat, stop in pending:
             if symbol not in today:
-                continue  # market closed for this symbol today; order lapses
+                waiting.append((side, symbol, qty, strat, stop))  # market closed today (weekend, holiday)
+                continue
             open_px = float(today[symbol]["open"])
             if side == "sell" and symbol in open_trades:
                 close_trade(open_trades[symbol], date, open_px, "strategy exit")
@@ -115,7 +121,7 @@ def run_backtest(
                 if qty > 0 and stop is not None and stop < fill:
                     cash -= fill * qty
                     open_trades[symbol] = Trade(symbol, strat, date, fill, qty, stop)
-        pending = []
+        pending = waiting
 
         # 2. protective stops
         for symbol, trade in list(open_trades.items()):
@@ -132,13 +138,14 @@ def run_backtest(
         # 4. decide tomorrow's orders
         positions = {s: Position(s, asset_classes[s], t.qty, t.qty * last_close[s]) for s, t in open_trades.items()}
         state = AccountState(equity, cash, day_start, peak, positions)
+        queued = {p[1] for p in pending}
         for symbol, trade in open_trades.items():
-            if symbol in today:
+            if symbol in today and symbol not in queued:
                 signal = by_strategy[trade.strategy].evaluate(symbol, bars[symbol].loc[:date].iloc[-HISTORY:], in_position=True)
                 if signal and signal.side == "sell":
                     pending.append(("sell", symbol, trade.qty, trade.strategy, None))
         for symbol in today:
-            if symbol in open_trades:
+            if symbol in open_trades or symbol in queued:
                 continue
             history = bars[symbol].loc[:date].iloc[-HISTORY:]
             for strat in strategies:

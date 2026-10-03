@@ -103,3 +103,20 @@ def test_reconcile_keeps_unfilled_entries_and_drops_stopped_out_ones():
     assert [r["symbol"] for r in store.query("SELECT symbol FROM open_trades")] == ["WAIT"]
     note = store.query("SELECT symbol, reason FROM decisions")
     assert [(r["symbol"], r["reason"]) for r in note] == [("GONE", "stop-loss filled")]
+
+
+def test_backtest_mixed_calendars_fill_exits():
+    # stocks stamped 04:00Z on weekdays only, crypto stamped 00:00Z every day
+    n = 140
+    days = pd.date_range("2024-01-01", periods=n * 2, tz="UTC")
+    weekdays = days[days.dayofweek < 5][:n]
+    wave = [100 + 20 * ((i // 25) % 2 and (25 - i % 25) or i % 25) / 25 for i in range(n)]
+    stock = series_frame(wave).set_axis(weekdays + pd.Timedelta(hours=4))
+    crypto = series_frame(wave * 2)[: len(days)].set_axis(days)
+    result = run_backtest({"S": stock, "C": crypto}, {"S": "stock", "C": "crypto"},
+                          (TrendFollowing(fast=5, slow=10),), benchmark_symbol=None)
+    stock_trades = [t for t in result.trades if t.symbol == "S"]
+    assert stock_trades, "exit orders on the stock must fill despite crypto-only days"
+    assert all(t.exit_reason != "stop" for t in stock_trades)
+    # one equity point per calendar day, not two
+    assert result.equity.index.is_unique and (result.equity.index == result.equity.index.normalize()).all()
