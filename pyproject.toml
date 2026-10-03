@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Paper-trading AI agent: market data, strategies, risk layer and execution on Alpaca"
 requires-python = ">=3.11"
 dependencies = [
-    "alpaca-py>=0.44",
+    "alpaca-py>=0.43",
     "pandas>=2.2",
     "python-dotenv>=1.0",
 ]
