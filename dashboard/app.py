@@ -71,22 +71,22 @@ else:
     st.caption(f"{len(universe)} liquid symbols the agent may trade")
     st.dataframe(universe, hide_index=True, use_container_width=True)
 
-st.header("Rules-only paper account")
+st.header("Strategy bots (one $25k book each)")
 equity = pd.DataFrame([dict(r) for r in store.query(
-    "SELECT ts, equity FROM equity_log WHERE account = 'rules' ORDER BY ts")])
+    "SELECT ts, account, equity FROM equity_log ORDER BY ts")])
 if equity.empty:
     st.info("No trading runs yet. Run `trade-away run`.")
 else:
     equity["ts"] = pd.to_datetime(equity["ts"], utc=True)
-    st.line_chart(equity.set_index("ts")["equity"])
+    st.line_chart(equity.pivot_table(index="ts", columns="account", values="equity").ffill())
 
 st.subheader("Open trades")
 st.dataframe(pd.DataFrame([dict(r) for r in store.query(
-    "SELECT symbol, strategy, opened_ts, entry, qty, stop FROM open_trades WHERE account = 'rules' ORDER BY opened_ts DESC")]),
+    "SELECT account AS bot, symbol, opened_ts, entry, qty, stop FROM open_trades ORDER BY opened_ts DESC")]),
     hide_index=True, use_container_width=True)
 
 st.subheader("Decision journal (latest 100)")
 st.dataframe(pd.DataFrame([dict(r) for r in store.query(
-    "SELECT ts, strategy, symbol, side, price, stop, qty, approved, risk_note, reason, dry_run "
-    "FROM decisions WHERE account = 'rules' ORDER BY id DESC LIMIT 100")]),
+    "SELECT ts, account AS bot, symbol, side, price, stop, qty, approved, risk_note, reason, dry_run "
+    "FROM decisions ORDER BY id DESC LIMIT 100")]),
     hide_index=True, use_container_width=True)

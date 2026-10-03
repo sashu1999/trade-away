@@ -26,6 +26,12 @@ log = logging.getLogger(__name__)
 SITE_DIR = Path(__file__).resolve().parents[2] / "site"
 STARTING_EQUITY = 100_000.0
 MAX_TRADES = 200
+BOT_INFO = {
+    "trend": "Buys when the 20-day average crosses above the 50-day, sells when it crosses back",
+    "dip": "Buys a sharp 2-day drop (RSI(2) under 10) in an uptrend, sells the bounce",
+    "breakout": "Buys a new 20-day high, sells a new 10-day low",
+    "momentum": "Holds the 10 strongest stocks of the last 6 months",
+}
 
 
 def _f(value) -> float | None:
@@ -69,26 +75,29 @@ def _realized(trades: list[dict]) -> list[dict]:
 def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dict],
                    history: Iterable[tuple[str, float]], decisions: dict[str, dict],
                    benchmark: Iterable[tuple[str, float]], now: datetime,
-                   starting_equity: float = STARTING_EQUITY) -> dict:
+                   starting_equity: float = STARTING_EQUITY, bots: Iterable[dict] = (),
+                   bot_history: dict[str, list[tuple[str, float]]] | None = None,
+                   owners: dict[str, str] | None = None) -> dict:
     """Assemble the public snapshot from plain data. Only fields listed here are published.
 
     account: equity, cash, last_equity. positions: symbol, asset_class, qty, avg_entry,
     price, market_value, unrealized_pl. fills: order_id, ts, symbol, side, qty, price, type.
     history: (date, equity), oldest first. decisions: order_id -> strategy, reason, stop.
-    benchmark: (date, close) for SPY, oldest first.
+    benchmark: (date, close) for SPY, oldest first. bots: bot, start, equity, positions per
+    strategy bot. bot_history: bot -> (date, equity), oldest first. owners: symbol -> bot.
     """
+    owners = owners or {}
+    bot_history = bot_history or {}
+    benchmark = list(benchmark)
     equity = float(account["equity"])
     last_equity = float(account.get("last_equity") or equity)
 
     trades = []
     for f in sorted(fills, key=lambda f: f["ts"]):
         d = decisions.get(f["order_id"], {})
-        if d:
-            strategy, reason = d.get("strategy"), d.get("reason")
-        elif f["side"] == "sell" and f.get("type") in ("stop", "stop_limit", "trailing_stop"):
-            strategy, reason = None, "stop-loss"
-        else:
-            strategy, reason = None, None
+        strategy, reason = d.get("strategy"), d.get("reason")
+        if not reason and f["side"] == "sell" and f.get("type") in ("stop", "stop_limit", "trailing_stop"):
+            reason = "stop-loss"
         trades.append({"ts": f["ts"], "symbol": f["symbol"], "side": f["side"],
                        "qty": float(f["qty"]), "price": float(f["price"]),
                        "strategy": strategy, "reason": reason})
@@ -99,7 +108,7 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
     pos_out = []
     for p in positions:
         pos_out.append({
-            "symbol": p["symbol"], "asset_class": p["asset_class"], "qty": float(p["qty"]),
+            "symbol": p["symbol"], "bot": owners.get(p["symbol"]), "asset_class": p["asset_class"], "qty": float(p["qty"]),
             "avg_entry": _f(p["avg_entry"]), "price": _f(p["price"]),
             "market_value": round(float(p["market_value"]), 2),
             "weight": round(float(p["market_value"]) / equity, 4) if equity else None,
@@ -130,6 +139,35 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
         peak = max(peak, point["equity"])
         max_dd = max(max_dd, 1 - point["equity"] / peak if peak else 0)
 
+    bots_out = []
+    for b in bots:
+        name, start, eq = b["bot"], float(b["start"]), float(b["equity"])
+        days = {d: e for d, e in bot_history.get(name, [])}  # last value per day wins
+        days[today] = eq
+        points = [{"date": d, "equity": round(e, 2)} for d, e in sorted(days.items())]
+        mine = [t for t in closed if t["strategy"] == name]
+        bpeak, bdd = 0.0, 0.0
+        for point in points:
+            bpeak = max(bpeak, point["equity"])
+            bdd = max(bdd, 1 - point["equity"] / bpeak if bpeak else 0)
+        bots_out.append({
+            "bot": name, "description": BOT_INFO.get(name, ""), "start": start, "equity": round(eq, 2),
+            "return": round(eq / start - 1, 4), "max_drawdown": round(bdd, 4),
+            "open_positions": int(b["positions"]), "closed_trades": len(mine),
+            "win_rate": round(sum(t["pnl"] > 0 for t in mine) / len(mine), 4) if mine else None,
+            "realized_pl": round(sum(t["pnl"] for t in mine), 2), "curve": points,
+        })
+    bots_out.sort(key=lambda b: -b["return"])
+
+    # SPY on the same footing as a bot: a $25k book from the day the race started.
+    bot_bench = []
+    if bots_out:
+        start_day = min(b["curve"][0]["date"] for b in bots_out)
+        closes = [(d, c) for d, c in benchmark if d >= start_day]
+        if closes:
+            stake = bots_out[0]["start"]
+            bot_bench = [{"date": d, "equity": round(stake * c / closes[0][1], 2)} for d, c in closes]
+
     return {
         "generated_at": to_iso(now),
         "mode": "paper",
@@ -151,17 +189,23 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
         "trades": trades[::-1][:MAX_TRADES],
         "equity_curve": curve,
         "benchmark": bench,
+        "bots": bots_out,
+        "bot_benchmark": bot_bench,
     }
 
 
 def fetch_snapshot(settings: Settings, store: Store, now: datetime | None = None) -> dict:
     """Read the paper account from Alpaca and the journal from SQLite, then build the snapshot."""
-    from alpaca.trading.client import TradingClient
     from alpaca.trading.enums import QueryOrderStatus
     from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest
 
+    from .engine import leaderboard, sync_fills
+    from .execution import AlpacaPaperBroker
+
     now = now or datetime.now(timezone.utc)
-    client = TradingClient(settings.api_key, settings.secret_key, paper=True)
+    broker = AlpacaPaperBroker(settings)
+    sync_fills(store, broker, now)  # real fill prices and stop-outs since the last run
+    client = broker.client
     crypto_names = {s.replace("/", ""): s for s in settings.crypto_symbols}
 
     acct = client.get_account()
@@ -197,7 +241,8 @@ def fetch_snapshot(settings: Settings, store: Store, now: datetime | None = None
                 history.append((datetime.fromtimestamp(ts, timezone.utc).date().isoformat(), float(eq)))
     except Exception as exc:  # fall back to our own log rather than publish nothing
         log.warning("portfolio history unavailable (%s); using equity_log", exc)
-        rows = store.query("SELECT substr(ts, 1, 10) AS d, equity FROM equity_log ORDER BY ts")
+        rows = store.query("SELECT substr(ts, 1, 10) AS d, SUM(equity) AS equity FROM equity_log "
+                           "GROUP BY ts ORDER BY ts")  # the bots' books add up to the account
         history = list({r["d"]: float(r["equity"]) for r in rows}.items())
 
     decisions = {
@@ -205,8 +250,18 @@ def fetch_snapshot(settings: Settings, store: Store, now: datetime | None = None
         for r in store.query("SELECT order_id, strategy, reason FROM decisions "
                              "WHERE order_id IS NOT NULL AND dry_run = 0")
     }
+    # Stop-loss legs and crypto stops have no decision row with their order id; the book knows the bot.
+    for r in store.query("SELECT order_id, account FROM book_fills"):
+        decisions.setdefault(r["order_id"], {"strategy": r["account"], "reason": None})
     benchmark = [(r["ts"][:10], float(r["close"])) for r in store.daily_bars("SPY", limit=400)]
-    return build_snapshot(account, positions, fills, history, decisions, benchmark, now)
+
+    bots = leaderboard(store, broker, settings, now=now, record=True)
+    bot_history: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    for r in store.query("SELECT account, substr(ts, 1, 10) AS d, equity FROM equity_log ORDER BY ts"):
+        bot_history[r["account"]].append((r["d"], float(r["equity"])))
+    owners = {r["symbol"]: r["account"] for r in store.query("SELECT symbol, account FROM open_trades")}
+    return build_snapshot(account, positions, fills, history, decisions, benchmark, now,
+                          bots=bots, bot_history=bot_history, owners=owners)
 
 
 def push_site(snapshot: dict, remote: str, branch: str = "gh-pages", token: str = "",

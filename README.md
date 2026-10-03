@@ -5,7 +5,7 @@ An AI trading agent that paper trades US stocks, ETFs and crypto on live data, s
 Built so far:
 
 - **Phase 0, foundation:** live prices into SQLite, a nightly screen of the whole US market, history backfill, news and a dashboard.
-- **Phase 1, rules-only baseline:** two strategies, hard risk limits, a backtester and paper trading with a decision journal. No AI yet. This is the baseline the AI agent has to beat in Phase 2.
+- **Phase 1, rules-only baseline:** four strategy bots racing on $25k books each, hard risk limits, a backtester and paper trading with a decision journal. No AI yet. This is the baseline the AI agent has to beat in Phase 2.
 
 ## What's here
 
@@ -17,22 +17,27 @@ Built so far:
 | `trade-away stream` | Streams live minute bars and trades: the top 30 screened stocks over IEX (the free plan's limit) plus BTC/USD and ETH/USD |
 | `trade-away news` | Saves the last 24h of Alpaca news to the events table |
 | `trade-away health` | Lists gaps in the crypto stream over the last week, which is the Phase 0 exit gate |
-| `trade-away backtest` | Backtests both strategies on stored daily bars with a 0.1% cost per side, and compares the result with buying and holding SPY |
-| `trade-away run` | Daily trading run on the Alpaca paper account: exits first, then entries, all through the risk layer. Use `--dry-run` to see the decisions without sending orders |
+| `trade-away backtest` | Backtests each bot on its own $25k book on stored daily bars, with a 0.1% cost per side, side by side with buying and holding SPY |
+| `trade-away run` | Daily run of all four strategy bots on the Alpaca paper account: exits first, then entries, all through the risk layer. Use `--dry-run` to see the decisions without sending orders |
+| `trade-away bots` | Each bot's book right now: value, return, cash, open positions |
 | `trade-away stops` | Enforces crypto stop-losses from streamed prices. Alpaca can't attach stops to crypto orders; stock stops are placed at Alpaca along with the entry |
 | `trade-away publish` | Pushes a snapshot of the paper account (equity vs SPY, open positions, every trade and why) to the public page on GitHub Pages. `--no-push --out snap.json` just writes the file |
 | `streamlit run dashboard/app.py` | Dashboard: latest prices, stream health, charts, today's universe |
 
-## Phase 1 strategies and limits
+## Strategy bots
 
-| Strategy | Buys when | Sells when | Stop |
+Four bots race on the one Alpaca paper account. Each has its own virtual $25,000 book: its cash comes from its own fills and its positions are its own, so each one's return can be compared with the others and with SPY. A symbol belongs to one bot at a time (the account can only hold one position per symbol), and the bot that picks first rotates daily.
+
+| Bot | Buys when | Sells when | Stop |
 | --- | --- | --- | --- |
 | Trend following (`trend`) | 20-day average crosses above the 50-day | 20-day falls back below the 50-day | 3 x ATR(14) below entry |
 | Dip buying (`dip`) | RSI(2) under 10 while price is above the 200-day average | Close above the 5-day average | 2 x ATR(14) below entry |
+| Breakout (`breakout`) | Close above the prior 20-day high | Close below the prior 10-day low | 2 x ATR(14) below entry |
+| Momentum (`momentum`, stocks only) | Among the top 10 of the screened stocks by return from 6 months to 1 month ago, and above the 200-day average | Drops out of the top 30, or falls below the 200-day average | 4 x ATR(14) below entry |
 
-Risk limits live in `src/trade_away/risk.py`, and no strategy or agent can override them:
+Every bot goes through the same risk layer, measured against its own book. Risk limits live in `src/trade_away/risk.py`, and no strategy or agent can override them:
 
-- Each trade risks 1% of equity.
+- Each trade risks 1% of the bot's equity.
 - Each symbol is capped at 10% of equity.
 - Total exposure is capped at 80% in stocks and 30% in crypto.
 - At most 10 positions are open at once.

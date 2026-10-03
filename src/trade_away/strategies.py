@@ -2,11 +2,14 @@
 
 Each strategy looks at one symbol's daily bars, up to and including the last
 closed bar, and returns an entry or exit signal. Orders act on the next bar's
-open, so there is no look-ahead. These are the two starter strategies from the
-Trading Basics research: trend following and short-term dip buying.
+open, so there is no look-ahead. Each one runs as its own bot with its own book
+(see engine.BOTS), so they can be compared head to head.
+
+A strategy that ranks symbols against each other (momentum) also has
+`prepare(bars_by_symbol)`, which returns a copy that knows the ranking.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol
 
 import pandas as pd
@@ -95,4 +98,99 @@ class DipBuying:
         return None
 
 
-DEFAULT_STRATEGIES: tuple[Strategy, ...] = (TrendFollowing(), DipBuying())
+@dataclass(frozen=True)
+class Breakout:
+    """Turtle-style channel breakout: buy a new N-day high, sell a new shorter-term low."""
+
+    entry: int = 20
+    exit: int = 10
+    atr_stop: float = 2.0
+    name: str = "breakout"
+
+    @property
+    def min_bars(self) -> int:
+        return max(self.entry, self.exit, 15) + 1
+
+    def evaluate(self, symbol: str, bars: pd.DataFrame, in_position: bool) -> Signal | None:
+        if len(bars) < self.min_bars:
+            return None
+        close = bars["close"]
+        price = float(close.iloc[-1])
+        if in_position:
+            low = float(bars["low"].iloc[-self.exit - 1:-1].min())
+            if price < low:
+                return Signal(symbol, "sell", self.name, price, None, f"closed below the {self.exit}-day low {low:.2f}")
+            return None
+        high = float(bars["high"].iloc[-self.entry - 1:-1].max())
+        if price > high:
+            stop = price - self.atr_stop * float(atr(bars["high"], bars["low"], close).iloc[-1])
+            return Signal(symbol, "buy", self.name, price, stop,
+                          f"closed above the {self.entry}-day high {high:.2f}; stop {self.atr_stop}x ATR")
+        return None
+
+
+def momentum_ranks(bars: dict[str, pd.DataFrame], lookback: int, skip: int) -> pd.DataFrame:
+    """Rank of each symbol's return from `lookback` to `skip` bars ago, per day (1 = strongest).
+
+    Only uses closes up to each day, so a rank never peeks ahead.
+    """
+    closes = pd.DataFrame({s: df["close"].set_axis(df.index.normalize()) for s, df in bars.items() if len(df)})
+    if closes.empty:
+        return closes
+    ret = closes.shift(skip) / closes.shift(lookback) - 1
+    return ret.rank(axis=1, ascending=False)
+
+
+@dataclass(frozen=True)
+class Momentum:
+    """Cross-sectional momentum: hold the strongest performers of the last ~6 months (skipping the
+    most recent month), only while they trade above their 200-day average. Sell once a holding
+    drops out of the top `keep`, so it doesn't churn on small rank changes."""
+
+    lookback: int = 126
+    skip: int = 21
+    top: int = 10
+    keep: int = 30
+    trend: int = 200
+    atr_stop: float = 4.0
+    name: str = "momentum"
+    ranks: pd.DataFrame | None = field(default=None, compare=False, repr=False)
+
+    @property
+    def min_bars(self) -> int:
+        return max(self.lookback, self.trend) + 1
+
+    def prepare(self, bars: dict[str, pd.DataFrame]) -> "Momentum":
+        return replace(self, ranks=momentum_ranks(bars, self.lookback, self.skip))
+
+    def _rank(self, symbol: str, day) -> float | None:
+        if self.ranks is None or symbol not in self.ranks or day not in self.ranks.index:
+            return None
+        r = self.ranks.at[day, symbol]
+        return None if pd.isna(r) else float(r)
+
+    def evaluate(self, symbol: str, bars: pd.DataFrame, in_position: bool) -> Signal | None:
+        if len(bars) < self.min_bars:
+            return None
+        close = bars["close"]
+        price = float(close.iloc[-1])
+        rank = self._rank(symbol, bars.index[-1].normalize())
+        above = price > sma(close, self.trend).iloc[-1]
+        if in_position:
+            if not above:
+                return Signal(symbol, "sell", self.name, price, None, f"fell below SMA{self.trend}")
+            if rank is not None and rank > self.keep:
+                return Signal(symbol, "sell", self.name, price, None, f"momentum rank {rank:.0f}, outside the top {self.keep}")
+            return None
+        if rank is not None and rank <= self.top and above:
+            stop = price - self.atr_stop * float(atr(bars["high"], bars["low"], close).iloc[-1])
+            return Signal(symbol, "buy", self.name, price, stop,
+                          f"momentum rank {rank:.0f} (top {self.top}), above SMA{self.trend}")
+        return None
+
+
+def prepare(strategy: Strategy, bars: dict[str, pd.DataFrame]) -> Strategy:
+    return strategy.prepare(bars) if hasattr(strategy, "prepare") else strategy
+
+
+DEFAULT_STRATEGIES: tuple[Strategy, ...] = (TrendFollowing(), DipBuying(), Breakout(), Momentum())

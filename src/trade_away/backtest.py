@@ -16,7 +16,7 @@ from datetime import datetime
 import pandas as pd
 
 from .risk import AccountState, OrderRequest, Position, RiskLimits, RiskManager
-from .strategies import DEFAULT_STRATEGIES, Strategy
+from .strategies import DEFAULT_STRATEGIES, Strategy, prepare
 
 HISTORY = 260  # bars handed to a strategy; the longest lookback is 200
 
@@ -82,10 +82,12 @@ def run_backtest(
 ) -> BacktestResult:
     """bars: symbol -> daily OHLCV DataFrame indexed by UTC timestamp, oldest first."""
     risk = RiskManager(limits)
-    by_strategy = {s.name: s for s in strategies}
     # Stock and crypto daily bars are stamped at different hours (exchange midnight vs. UTC offsets),
     # so put every bar on its UTC calendar day; otherwise each day splits into two "dates".
     bars = {s: df.set_axis(df.index.normalize()) for s, df in bars.items()}
+    stock_bars = {s: df for s, df in bars.items() if asset_classes[s] == "stock"}
+    strategies = tuple(prepare(s, stock_bars) for s in strategies)
+    by_strategy = {s.name: s for s in strategies}
     dates = sorted(set().union(*(df.index for df in bars.values())))
     cash = starting_cash
     open_trades: dict[str, Trade] = {}

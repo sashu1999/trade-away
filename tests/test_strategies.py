@@ -54,3 +54,44 @@ def test_dip_buys_sharp_drop_in_uptrend_only():
 def test_strategies_need_enough_history():
     assert TrendFollowing().evaluate("X", frame([100.0] * 10), False) is None
     assert DipBuying().evaluate("X", frame([100.0] * 10), False) is None
+
+
+def _frame(closes, spread=1.0):
+    import pandas as pd
+
+    close = pd.Series(closes, dtype=float, index=pd.date_range("2024-01-01", periods=len(closes), tz="UTC"))
+    return pd.DataFrame({"open": close, "high": close + spread, "low": close - spread, "close": close, "volume": 1e6})
+
+
+def test_breakout_buys_new_high_and_sells_new_low():
+    from trade_away.strategies import Breakout
+
+    b = Breakout(entry=20, exit=10)
+    flat = [100.0] * 30
+    assert b.evaluate("X", _frame(flat), in_position=False) is None
+    buy = b.evaluate("X", _frame(flat + [105.0]), in_position=False)
+    assert buy and buy.side == "buy" and buy.stop < 105
+    sell = b.evaluate("X", _frame(flat + [95.0]), in_position=True)
+    assert sell and sell.side == "sell"
+
+
+def test_momentum_buys_only_the_leaders():
+    from trade_away.strategies import Momentum
+
+    n = 260
+    bars = {f"S{i}": _frame([100 * (1 + 0.0005 * i) ** d for d in range(n)]) for i in range(1, 6)}
+    m = Momentum(top=2, keep=3).prepare(bars)
+    assert m.evaluate("S5", bars["S5"], in_position=False).side == "buy"
+    assert m.evaluate("S1", bars["S1"], in_position=False) is None
+    assert m.evaluate("S1", bars["S1"], in_position=True).side == "sell"  # rank 5 is outside the top 3
+    assert Momentum().evaluate("S5", bars["S5"], in_position=False) is None  # no ranking, no trade
+
+
+def test_momentum_ranks_do_not_look_ahead():
+    from trade_away.strategies import momentum_ranks
+
+    bars = {"A": _frame([100.0] * 50), "B": _frame([100.0] * 50)}
+    before = momentum_ranks(bars, 20, 5)
+    bars["B"].iloc[-1, bars["B"].columns.get_loc("close")] = 1000.0
+    after = momentum_ranks(bars, 20, 5)
+    assert before.iloc[:-1].equals(after.iloc[:-1])

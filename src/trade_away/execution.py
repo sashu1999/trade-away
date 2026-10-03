@@ -2,6 +2,8 @@
 
 import logging
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 from .config import Settings
@@ -10,11 +12,24 @@ from .risk import AccountState, Position
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class Fill:
+    order_id: str
+    parent_id: str | None  # set for a stop-loss leg of an entry order
+    symbol: str
+    side: str
+    qty: float
+    price: float
+    ts: datetime
+
+
 class Broker(Protocol):
     def account(self, peak_equity: float) -> AccountState: ...
     def buy(self, symbol: str, asset_class: str, qty: float, stop: float) -> str: ...
     def close(self, symbol: str, asset_class: str) -> str: ...
     def open_order_symbols(self) -> set[str]: ...
+    def order_fills(self, order_id: str) -> list[Fill]:
+        """What has filled so far for an order and its legs (the attached stop-loss)."""
 
 
 class AlpacaPaperBroker:
@@ -81,6 +96,18 @@ class AlpacaPaperBroker:
         log.info("closing %s -> %s", symbol, order.id)
         return str(order.id)
 
+    def order_fills(self, order_id: str) -> list[Fill]:
+        from alpaca.trading.requests import GetOrderByIdRequest
+
+        order = self.client.get_order_by_id(order_id, filter=GetOrderByIdRequest(nested=True))
+        fills = []
+        for o, parent in [(order, None)] + [(leg, str(order.id)) for leg in order.legs or []]:
+            if o.filled_qty and float(o.filled_qty) > 0 and o.filled_avg_price:
+                side = str(getattr(o.side, "value", o.side)).lower()
+                fills.append(Fill(str(o.id), parent, self._crypto_names.get(o.symbol.replace("/", ""), o.symbol),
+                                  side, float(o.filled_qty), float(o.filled_avg_price), o.filled_at))
+        return fills
+
 
 class FakeBroker:
     """In-memory broker for tests and dry runs: fills instantly at the given prices."""
@@ -92,6 +119,14 @@ class FakeBroker:
         self.last_equity = last_equity
         self.orders: list[tuple[str, str, float, float | None]] = []
         self.pending: set[str] = set()  # symbols with unfilled orders
+        self.fills: dict[str, list[Fill]] = {}
+        self.entry_ids: dict[str, str] = {}
+
+    def _fill(self, side: str, symbol: str, qty: float, parent: str | None = None) -> str:
+        order_id = f"fake-{len(self.orders)}"
+        fill = Fill(order_id, parent, symbol, side, qty, self.prices[symbol], datetime.now(timezone.utc))
+        self.fills.setdefault(parent or order_id, []).append(fill)
+        return order_id
 
     def account(self, peak_equity: float) -> AccountState:
         positions = {s: Position(s, p.asset_class, p.qty, p.qty * self.prices[s]) for s, p in self.positions.items()}
@@ -102,7 +137,8 @@ class FakeBroker:
         self.cash -= qty * self.prices[symbol]
         self.positions[symbol] = Position(symbol, asset_class, qty, qty * self.prices[symbol])
         self.orders.append(("buy", symbol, qty, stop))
-        return f"fake-{len(self.orders)}"
+        self.entry_ids[symbol] = self._fill("buy", symbol, qty)
+        return self.entry_ids[symbol]
 
     def open_order_symbols(self) -> set[str]:
         return set(self.pending)
@@ -111,4 +147,15 @@ class FakeBroker:
         pos = self.positions.pop(symbol)
         self.cash += pos.qty * self.prices[symbol]
         self.orders.append(("sell", symbol, pos.qty, None))
-        return f"fake-{len(self.orders)}"
+        return self._fill("sell", symbol, pos.qty)
+
+    def stop_out(self, symbol: str, price: float) -> None:
+        """Simulate the broker-side stop leg filling."""
+        self.prices[symbol] = price
+        pos = self.positions.pop(symbol)
+        self.cash += pos.qty * price
+        self.orders.append(("stop", symbol, pos.qty, None))
+        self._fill("sell", symbol, pos.qty, parent=self.entry_ids[symbol])
+
+    def order_fills(self, order_id: str) -> list[Fill]:
+        return list(self.fills.get(order_id, []))

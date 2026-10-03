@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_events_symbol_ts ON events (symbol, ts);
 CREATE TABLE IF NOT EXISTS decisions (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     ts        TEXT NOT NULL,
-    account   TEXT NOT NULL,            -- 'rules' for the Phase 1 baseline
+    account   TEXT NOT NULL,            -- the bot's book: 'trend', 'dip', 'breakout', 'momentum'
     strategy  TEXT NOT NULL,
     symbol    TEXT NOT NULL,
     side      TEXT NOT NULL,
@@ -78,6 +78,19 @@ CREATE TABLE IF NOT EXISTS open_trades (
     qty       REAL NOT NULL,
     stop      REAL NOT NULL,
     PRIMARY KEY (account, symbol)
+);
+
+-- Each bot's share of the one Alpaca account. A row starts as an estimate at the signal
+-- price and is corrected once the broker reports the fill. Stop-loss legs land here too.
+CREATE TABLE IF NOT EXISTS book_fills (
+    order_id TEXT PRIMARY KEY,
+    account  TEXT NOT NULL,
+    symbol   TEXT NOT NULL,
+    side     TEXT NOT NULL,
+    qty      REAL NOT NULL,
+    price    REAL NOT NULL,
+    ts       TEXT NOT NULL,
+    filled   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS equity_log (

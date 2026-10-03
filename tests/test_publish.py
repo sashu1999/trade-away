@@ -70,3 +70,25 @@ def test_push_site_force_pushes_one_commit(tmp_path):
     files = subprocess.run(["git", "--git-dir", str(remote), "ls-tree", "--name-only", "gh-pages"],
                            capture_output=True, text=True, check=True).stdout.split()
     assert sorted(files) == [".nojekyll", "data.json", "index.html"]
+
+
+def test_snapshot_bots_leaderboard():
+    s = build_snapshot(
+        {"equity": "100000", "cash": "100000"}, [], [
+            {"order_id": "b", "ts": "2026-10-01T13:30:00+00:00", "symbol": "AAPL", "side": "buy",
+             "qty": "10", "price": "100", "type": "market"},
+            {"order_id": "leg", "ts": "2026-10-02T13:30:00+00:00", "symbol": "AAPL", "side": "sell",
+             "qty": "10", "price": "90", "type": "stop"}],
+        [], {"b": {"strategy": "dip", "reason": "RSI"}, "leg": {"strategy": "dip", "reason": None}},
+        [("2026-10-01", 500.0), ("2026-10-05", 510.0)], NOW,
+        bots=[{"bot": "dip", "start": 25_000, "equity": 24_900, "positions": 0},
+              {"bot": "trend", "start": 25_000, "equity": 25_500, "positions": 2}],
+        bot_history={"trend": [("2026-10-01", 25_000), ("2026-10-01", 25_100), ("2026-10-02", 25_200)]},
+        owners={"AAPL": "dip"})
+    assert [b["bot"] for b in s["bots"]] == ["trend", "dip"]
+    trend, dip = s["bots"]
+    assert trend["curve"] == [{"date": "2026-10-01", "equity": 25_100}, {"date": "2026-10-02", "equity": 25_200},
+                              {"date": "2026-10-05", "equity": 25_500}]
+    assert dip["closed_trades"] == 1 and dip["realized_pl"] == -100 and dip["win_rate"] == 0
+    assert s["trades"][0]["reason"] == "stop-loss" and s["trades"][0]["strategy"] == "dip"
+    assert s["bot_benchmark"][-1]["equity"] == 25_500

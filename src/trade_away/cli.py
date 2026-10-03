@@ -83,9 +83,9 @@ def cmd_health(settings, store, args) -> None:
 
 def cmd_backtest(settings, store, args) -> None:
     from .backtest import frame_from_rows, run_backtest
-    from .strategies import DEFAULT_STRATEGIES
+    from .engine import BOTS
 
-    strategies = tuple(s for s in DEFAULT_STRATEGIES if not args.strategy or s.name == args.strategy)
+    bots = [b for b in BOTS if not args.strategy or b.name == args.strategy]
     symbols = {s: "stock" for s in store.latest_universe(limit=args.top)}
     symbols.update({s: "crypto" for s in settings.crypto_symbols})
     bars = {s: frame_from_rows(store.daily_bars(s, limit=args.days)) for s in symbols}
@@ -94,11 +94,34 @@ def cmd_backtest(settings, store, args) -> None:
         sys.exit("no daily bars in the database; run `trade-away screen` and `trade-away backfill` first")
     if "SPY" not in bars and (spy := frame_from_rows(store.daily_bars("SPY", limit=args.days))).size:
         bars["SPY"], symbols["SPY"] = spy, "stock"
-    result = run_backtest(bars, symbols, strategies, cost=args.cost)
-    for key, value in result.metrics().items():
-        print(f"{key:18} {value:,.4f}" if isinstance(value, float) else f"{key:18} {value}")
-    if result.rejections:
-        print("risk rejections:", ", ".join(f"{k} x{v}" for k, v in sorted(result.rejections.items())))
+    # Each bot backtests on its own book, on the asset classes it trades, like it runs live.
+    results = {}
+    for bot in bots:
+        allowed = {s: c for s, c in symbols.items() if s in bars and (bot.stocks if c == "stock" else bot.crypto)}
+        results[bot.name] = run_backtest({s: bars[s] for s in allowed}, allowed, (bot.strategy,),
+                                         starting_cash=bot.start, cost=args.cost)
+    table = {name: r.metrics() for name, r in results.items()}
+    keys = list(next(iter(table.values())).keys())
+    print(f"{'':18}" + "".join(f"{name:>12}" for name in table))
+    for key in keys:
+        cells = []
+        for m in table.values():
+            v = m.get(key)
+            cells.append(f"{'':>12}" if v is None else f"{v:>12,.4f}" if isinstance(v, float) else f"{v:>12}")
+        print(f"{key:18}" + "".join(cells))
+    for name, r in results.items():
+        if r.rejections:
+            print(f"{name} risk rejections:", ", ".join(f"{k} x{v}" for k, v in sorted(r.rejections.items())))
+
+
+def cmd_bots(settings, store, args) -> None:
+    from .engine import leaderboard
+    from .execution import AlpacaPaperBroker
+
+    _require_keys(settings)
+    for row in sorted(leaderboard(store, AlpacaPaperBroker(settings), settings), key=lambda r: -r["equity"]):
+        print(f"{row['bot']:10} ${row['equity']:>11,.2f}  {row['equity'] / row['start'] - 1:+7.2%}  "
+              f"cash ${row['cash']:>10,.2f}  {row['positions']} positions")
 
 
 def cmd_run(settings, store, args) -> None:
@@ -110,7 +133,7 @@ def cmd_run(settings, store, args) -> None:
                         crypto_only=args.crypto_only, dry_run=args.dry_run)
     for a in actions:
         verdict = f"APPROVED qty={a.decision.qty:g}" if a.decision.approved else "REJECTED"
-        print(f"{a.side:4} {a.symbol:10} {a.strategy:6} {verdict}: {a.decision.reason} | {a.reason}")
+        print(f"{a.side:4} {a.symbol:10} {a.strategy:8} {verdict}: {a.decision.reason} | {a.reason}")
     print(f"{len(actions)} signals{' (dry run, nothing sent)' if args.dry_run else ''}")
 
 
@@ -148,16 +171,17 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--hours", type=int, default=24)
     h = sub.add_parser("health", help="report stream gaps (Phase 0 gate)")
     h.add_argument("--hours", type=float, default=24 * 7)
-    bt = sub.add_parser("backtest", help="backtest the rules-only strategies on stored daily bars")
+    bt = sub.add_parser("backtest", help="backtest each strategy bot on stored daily bars, side by side")
     bt.add_argument("--top", type=int, default=100)
     bt.add_argument("--days", type=int, default=750)
-    bt.add_argument("--strategy", choices=["trend", "dip"])
+    bt.add_argument("--strategy", choices=["trend", "dip", "breakout", "momentum"])
     bt.add_argument("--cost", type=float, default=0.001, help="per-side cost haircut")
-    r = sub.add_parser("run", help="daily rules-only trading run on the paper account")
+    r = sub.add_parser("run", help="daily run of every strategy bot on the paper account")
     r.add_argument("--top", type=int, default=100)
     r.add_argument("--dry-run", action="store_true")
     r.add_argument("--crypto-only", action="store_true", help="weekend runs: no new stock entries")
     sub.add_parser("stops", help="enforce crypto stop-losses from the latest streamed prices")
+    sub.add_parser("bots", help="each strategy bot's book: equity, return, cash, positions")
     pub = sub.add_parser("publish", help="push a public snapshot of the paper account to GitHub Pages")
     pub.add_argument("--out", help="also write the snapshot JSON to this file")
     pub.add_argument("--no-push", action="store_true", help="build the snapshot without pushing it")
@@ -168,7 +192,7 @@ COMMANDS = {
     "check": cmd_check, "screen": cmd_screen, "backfill": cmd_backfill,
     "stream": cmd_stream, "news": cmd_news, "health": cmd_health,
     "backtest": cmd_backtest, "run": cmd_run, "stops": cmd_stops,
-    "publish": cmd_publish,
+    "publish": cmd_publish, "bots": cmd_bots,
 }
 
 
