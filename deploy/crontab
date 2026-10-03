@@ -10,3 +10,5 @@
 # Crypto stop-losses (Alpaca can't attach stops to crypto orders).
 */5 * * * *   cd /home/ubuntu/trade-away && .venv/bin/trade-away stops >> data/cron.log 2>&1
 */15 * * * *  cd /home/ubuntu/trade-away && .venv/bin/trade-away news >> data/cron.log 2>&1
+# Public trade tracker on GitHub Pages (needs PAGES_TOKEN in .env).
+*/30 * * * *  cd /home/ubuntu/trade-away && .venv/bin/trade-away publish >> data/cron.log 2>&1

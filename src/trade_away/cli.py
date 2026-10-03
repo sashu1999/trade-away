@@ -123,6 +123,16 @@ def cmd_stops(settings, store, args) -> None:
     print(f"stopped out: {', '.join(closed)}" if closed else "no stops hit")
 
 
+def cmd_publish(settings, store, args) -> None:
+    from .publish import run_publish
+
+    _require_keys(settings)
+    snap = run_publish(settings, store, out=args.out, push=not args.no_push)
+    s = snap["summary"]
+    print(f"equity ${s['equity']:,.2f}, {s['open_positions']} positions, {s['trades']} trades"
+          f"{'' if args.no_push else ' -> published'}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="trade-away")
     sub = p.add_subparsers(dest="command", required=True)
@@ -148,6 +158,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--dry-run", action="store_true")
     r.add_argument("--crypto-only", action="store_true", help="weekend runs: no new stock entries")
     sub.add_parser("stops", help="enforce crypto stop-losses from the latest streamed prices")
+    pub = sub.add_parser("publish", help="push a public snapshot of the paper account to GitHub Pages")
+    pub.add_argument("--out", help="also write the snapshot JSON to this file")
+    pub.add_argument("--no-push", action="store_true", help="build the snapshot without pushing it")
     return p
 
 
@@ -155,6 +168,7 @@ COMMANDS = {
     "check": cmd_check, "screen": cmd_screen, "backfill": cmd_backfill,
     "stream": cmd_stream, "news": cmd_news, "health": cmd_health,
     "backtest": cmd_backtest, "run": cmd_run, "stops": cmd_stops,
+    "publish": cmd_publish,
 }
 
 

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>trade-away live</title>
+<meta name="description" content="Live paper-trading record of the trade-away agent: equity, open positions and every trade.">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f6f4; --surface: #fcfcfb; --border: #e4e3df;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #75746f;
+  --s1: #2a78d6; --s2: #eb6834;
+  --good: #0b7a3e; --bad: #c42b2b; --grid: #ecebe7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --border: #2e2e2b;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #9a998f;
+    --s1: #3987e5; --s2: #d95926;
+    --good: #4cc27e; --bad: #f07272; --grid: #262624;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --border: #2e2e2b;
+  --text: #ffffff; --text-2: #c3c2b7; --muted: #9a998f;
+  --s1: #3987e5; --s2: #d95926;
+  --good: #4cc27e; --bad: #f07272; --grid: #262624;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+.sub { color: var(--text-2); margin: 0 0 24px; }
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-2); vertical-align: middle; margin-left: 8px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.stat .label { color: var(--muted); font-size: 13px; }
+.stat .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .note { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.up { color: var(--good); } .down { color: var(--bad); }
+.legend { display: flex; gap: 16px; font-size: 13px; color: var(--text-2); margin: -4px 0 8px; flex-wrap: wrap; }
+.legend span::before { content: ""; display: inline-block; width: 14px; height: 2px; vertical-align: middle;
+  margin-right: 6px; background: var(--c); }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 280px; }
+.chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; font-size: 13px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.12);
+  white-space: nowrap; display: none; font-variant-numeric: tabular-nums; }
+.tip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child, th.l, td.l { text-align: left; }
+th { color: var(--muted); font-weight: 500; font-size: 13px; }
+tr:last-child td { border-bottom: 0; }
+td.reason { white-space: normal; min-width: 180px; color: var(--text-2); text-align: left; }
+.side { font-weight: 600; font-size: 12px; text-transform: uppercase; }
+.empty { color: var(--muted); padding: 16px 0; text-align: center; }
+footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
+footer a { color: var(--text-2); }
+</style>
+</head>
+<body>
+<main>
+  <h1>trade-away <span class="badge">Paper trading</span></h1>
+  <p class="sub" id="updated">Loading the latest snapshot…</p>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="card">
+    <h2>Account value</h2>
+    <div class="legend"><span style="--c: var(--s1)">Agent</span><span style="--c: var(--s2)">S&amp;P 500 (SPY), same start</span></div>
+    <div class="chart" id="chart"><div class="tip" id="tip"></div></div>
+  </section>
+
+  <section class="card">
+    <h2>Open positions</h2>
+    <div class="table-wrap" id="positions"></div>
+  </section>
+
+  <section class="card">
+    <h2>Trades</h2>
+    <div class="table-wrap" id="trades"></div>
+  </section>
+
+  <footer>
+    Simulated trades on an Alpaca paper account starting with $100,000. No real money is involved and nothing here is investment advice.
+    Updated automatically by the agent's server. Source: <a href="https://github.com/sashu1999/trade-away">github.com/sashu1999/trade-away</a>.
+  </footer>
+</main>
+<script>
+const money = (v, d = 2) => v == null ? "–" : v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (v, sign = true) => v == null ? "–" : (sign && v > 0 ? "+" : "") + (v * 100).toFixed(2) + "%";
+const tone = v => v == null || v === 0 ? "" : v > 0 ? "up" : "down";
+const qty = v => v.toLocaleString("en-US", { maximumFractionDigits: 6 });
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtTime = iso => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtDate = d => new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+
+function stats(s) {
+  const tiles = [
+    ["Account value", money(s.equity, 0), `${pct(s.day_change)} today`, tone(s.day_change)],
+    ["Total return", pct(s.total_return), `from ${money(s.starting_equity, 0)}`, tone(s.total_return)],
+    ["S&P 500 same period", pct(s.benchmark_return), "buy and hold SPY", tone(s.benchmark_return)],
+    ["Max drawdown", s.max_drawdown ? "−" + (s.max_drawdown * 100).toFixed(2) + "%" : "0.00%", "peak to trough", ""],
+    ["Closed trades", String(s.closed_trades), s.win_rate == null ? "no closed trades yet" : `${pct(s.win_rate, false)} winners`, ""],
+    ["Realized P/L", money(s.realized_pl, 0), `${s.open_positions} open positions`, tone(s.realized_pl)],
+  ];
+  document.getElementById("stats").innerHTML = tiles.map(([l, v, n, t]) =>
+    `<div class="stat"><div class="label">${l}</div><div class="value ${t}">${v}</div><div class="note">${n}</div></div>`).join("");
+}
+
+function chart(curve, bench) {
+  const box = document.getElementById("chart"), tip = document.getElementById("tip");
+  const W = box.clientWidth || 600, H = 280, m = { t: 10, r: 12, b: 26, l: 64 };
+  if (curve.length < 2) {
+    box.insertAdjacentHTML("afterbegin", `<p class="empty">The chart fills in after the first full trading day.</p>`);
+    return;
+  }
+  const dates = [...new Set([...curve, ...bench].map(p => p.date))].sort();
+  const x = d => m.l + (dates.indexOf(d) / (dates.length - 1)) * (W - m.l - m.r);
+  const vals = [...curve, ...bench].map(p => p.equity);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max((hi - lo) * 0.08, hi * 0.002); lo -= pad; hi += pad;
+  const path = pts => pts.map((p, i) => `${i ? "L" : "M"}${x(p.date).toFixed(1)},${y(p.equity).toFixed(1)}`).join("");
+  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(v => v >= raw);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const ticks = []; for (let t = lo; t <= hi + step / 2; t += step) ticks.push(t);
+  const y = v => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const xt = [0, Math.floor((dates.length - 1) / 2), dates.length - 1].filter((v, i, a) => a.indexOf(v) === i);
+  const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account value over time compared with SPY">
+    ${ticks.map(t => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)"/>
+      <text x="${m.l - 8}" y="${y(t) + 4}" text-anchor="end">${money(t, 0)}</text>`).join("")}
+    ${xt.map(i => `<text x="${x(dates[i])}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === dates.length - 1 ? "end" : "middle"}">${fmtDate(dates[i])}</text>`).join("")}
+    ${bench.length > 1 ? `<path d="${path(bench)}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>` : ""}
+    <path d="${path(curve)}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+    <line id="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
+    <circle id="d1" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <circle id="d2" r="4" fill="var(--s2)" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>
+    <rect x="${m.l}" y="0" width="${W - m.l - m.r}" height="${H}" fill="transparent" id="hit"/>
+  </svg>`;
+  box.insertAdjacentHTML("afterbegin", svg);
+  const byDate = (arr, d) => arr.find(p => p.date === d);
+  const s = box.querySelector("svg"), xh = s.querySelector("#xh"), d1 = s.querySelector("#d1"), d2 = s.querySelector("#d2");
+  const move = ev => {
+    const r = s.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const i = Math.round((px - m.l) / (W - m.l - m.r) * (dates.length - 1));
+    const d = dates[Math.max(0, Math.min(dates.length - 1, i))], a = byDate(curve, d), b = byDate(bench, d);
+    xh.setAttribute("x1", x(d)); xh.setAttribute("x2", x(d)); xh.setAttribute("visibility", "visible");
+    for (const [dot, p] of [[d1, a], [d2, b]]) {
+      dot.setAttribute("visibility", p ? "visible" : "hidden");
+      if (p) { dot.setAttribute("cx", x(d)); dot.setAttribute("cy", y(p.equity)); }
+    }
+    tip.innerHTML = `<strong>${fmtDate(d)}</strong><br>` +
+      (a ? `<i style="background:var(--s1)"></i>Agent ${money(a.equity, 0)}<br>` : "") +
+      (b ? `<i style="background:var(--s2)"></i>SPY ${money(b.equity, 0)}` : "");
+    tip.style.display = "block";
+    const left = x(d) * r.width / W;
+    tip.style.left = Math.min(Math.max(left - tip.offsetWidth / 2, 0), r.width - tip.offsetWidth) + "px";
+    tip.style.top = "8px";
+  };
+  const hide = () => { tip.style.display = "none"; [xh, d1, d2].forEach(e => e.setAttribute("visibility", "hidden")); };
+  s.addEventListener("pointermove", move); s.addEventListener("pointerleave", hide);
+}
+
+function positions(rows) {
+  const el = document.getElementById("positions");
+  if (!rows.length) { el.innerHTML = `<p class="empty">No open positions right now.</p>`; return; }
+  el.innerHTML = `<table><thead><tr><th>Symbol</th><th>Quantity</th><th>Avg entry</th><th>Price</th><th>Value</th><th>Weight</th><th>Unrealized</th></tr></thead><tbody>` +
+    rows.map(p => `<tr><td><strong>${esc(p.symbol)}</strong></td><td>${qty(p.qty)}</td><td>${money(p.avg_entry)}</td><td>${money(p.price)}</td>
+      <td>${money(p.market_value, 0)}</td><td>${pct(p.weight, false)}</td>
+      <td class="${tone(p.unrealized_pl)}">${money(p.unrealized_pl)} (${pct(p.unrealized_pct)})</td></tr>`).join("") + `</tbody></table>`;
+}
+
+function trades(rows) {
+  const el = document.getElementById("trades");
+  if (!rows.length) { el.innerHTML = `<p class="empty">No trades yet. The agent trades once a day after the US market closes.</p>`; return; }
+  el.innerHTML = `<table><thead><tr><th>Time</th><th class="l">Symbol</th><th class="l">Side</th><th>Quantity</th><th>Price</th><th>Realized</th><th class="l">Strategy</th><th class="l">Why</th></tr></thead><tbody>` +
+    rows.map(t => `<tr><td>${fmtTime(t.ts)}</td><td class="l"><strong>${esc(t.symbol)}</strong></td>
+      <td class="l"><span class="side ${t.side === "buy" ? "up" : "down"}">${t.side === "buy" ? "▲ Buy" : "▼ Sell"}</span></td>
+      <td>${qty(t.qty)}</td><td>${money(t.price)}</td>
+      <td class="${tone(t.pnl)}">${t.pnl == null ? "" : `${money(t.pnl)} (${pct(t.pnl_pct)})`}</td>
+      <td class="l">${esc(t.strategy || "")}</td><td class="reason">${esc(t.reason || "")}</td></tr>`).join("") + `</tbody></table>`;
+}
+
+fetch("data.json", { cache: "no-store" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => {
+    document.getElementById("updated").textContent =
+      `An AI trading agent's paper account, followed live. Last updated ${fmtTime(d.generated_at)}.`;
+    stats(d.summary); chart(d.equity_curve, d.benchmark); positions(d.positions); trades(d.trades);
+  })
+  .catch(() => { document.getElementById("updated").textContent = "No snapshot has been published yet."; });
+</script>
+</body>
+</html>

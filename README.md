@@ -20,6 +20,7 @@ Built so far:
 | `trade-away backtest` | Backtests both strategies on stored daily bars with a 0.1% cost per side, and compares the result with buying and holding SPY |
 | `trade-away run` | Daily trading run on the Alpaca paper account: exits first, then entries, all through the risk layer. Use `--dry-run` to see the decisions without sending orders |
 | `trade-away stops` | Enforces crypto stop-losses from streamed prices. Alpaca can't attach stops to crypto orders; stock stops are placed at Alpaca along with the entry |
+| `trade-away publish` | Pushes a snapshot of the paper account (equity vs SPY, open positions, every trade and why) to the public page on GitHub Pages. `--no-push --out snap.json` just writes the file |
 | `streamlit run dashboard/app.py` | Dashboard: latest prices, stream health, charts, today's universe |
 
 ## Phase 1 strategies and limits
@@ -74,6 +75,16 @@ crontab deploy/crontab
 ```
 
 The dashboard listens only on localhost. To view it from your computer, use `ssh -L 8501:localhost:8501 ubuntu@<vm-ip>` and open http://localhost:8501.
+
+## Public trade tracker
+
+Anyone can follow the paper account at **https://sashu1999.github.io/trade-away/**. The page is `site/index.html`; the server publishes it with a fresh `data.json` every 30 minutes (see `deploy/crontab`) as a single force-pushed commit on the `gh-pages` branch. The snapshot holds only prices, quantities, P/L and the strategy's reason for each trade: no keys, account number or order ids.
+
+One-time setup:
+
+1. On GitHub, create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with access to only `sashu1999/trade-away` and the permission **Contents: Read and write**.
+2. On the server, add it to `.env` as `PAGES_TOKEN=...`, then run `.venv/bin/trade-away publish` once and reinstall the crontab with `crontab deploy/crontab`.
+3. In the repo's **Settings > Pages**, set the source to **Deploy from a branch**, branch `gh-pages`, folder `/ (root)`.
 
 ## Phase 0 exit gate
 
