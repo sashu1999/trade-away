@@ -12,7 +12,7 @@ Built so far:
 | Command | What it does |
 | --- | --- |
 | `trade-away check` | Checks your keys and paper account, and whether your plan includes news |
-| `trade-away screen` | Pulls daily bars for every tradable US stock and ETF, then keeps the liquid ones (price above $5, over $20M traded a day) ranked by dollar volume |
+| `trade-away screen` | Pulls daily bars for every tradable US stock and ETF, then keeps the liquid ones (price above $5, over $20M traded a day, no leveraged, inverse or volatility ETFs) ranked by dollar volume |
 | `trade-away backfill` | Fetches 2 years of daily history for the top 200 screened names plus the crypto pairs |
 | `trade-away stream` | Streams live minute bars and trades: the top 30 screened stocks over IEX (the free plan's limit) plus BTC/USD and ETH/USD |
 | `trade-away news` | Saves the last 24h of Alpaca news to the events table |

@@ -5,6 +5,7 @@ filter (no penny stocks, nothing too thin to fill), not a watchlist.
 """
 
 import logging
+import re
 import time
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,12 @@ from .db import BarRow, Store
 log = logging.getLogger(__name__)
 
 MAJOR_EXCHANGES = {"NYSE", "NASDAQ", "ARCA", "NYSEARCA", "AMEX", "BATS"}
+# Leveraged, inverse and volatility products: the risk rules say no leverage, and these decay daily.
+LEVERAGED = re.compile(r"\b-?\d(\.\d+)?x\b|ultra|leveraged|inverse|\bshort\b|\bbear\b|volatility|\bvix\b", re.I)
+
+
+def is_leveraged(name: str | None) -> bool:
+    return bool(name and LEVERAGED.search(name))
 LOOKBACK_DAYS = 20
 CHUNK = 200
 
@@ -60,6 +67,7 @@ def fetch_tradable_symbols(settings: Settings) -> list[str]:
     return sorted(
         a.symbol for a in assets
         if a.tradable and str(getattr(a.exchange, "value", a.exchange)) in MAJOR_EXCHANGES
+        and not is_leveraged(a.name)
     )
 
 

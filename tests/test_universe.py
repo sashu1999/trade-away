@@ -34,3 +34,16 @@ def test_screen_uses_only_the_lookback_window():
 
 def test_screen_empty_input():
     assert screen(pd.DataFrame(), 5, 1).empty
+
+
+def test_leveraged_and_inverse_products_are_excluded():
+    from trade_away.universe import is_leveraged
+
+    for name in ("Direxion Daily Semiconductor Bull 3X Shares", "ProShares UltraPro QQQ",
+                 "ProShares UltraShort S&P500", "ProShares Short QQQ", "GraniteShares 2x Long TSLA Daily ETF",
+                 "Defiance Daily Target 1.75X Long MSTR ETF", "ProShares Ultra VIX Short-Term Futures ETF",
+                 "MicroSectors FANG+ Index -3X Inverse Leveraged ETNs"):
+        assert is_leveraged(name), name
+    for name in ("Invesco QQQ Trust, Series 1", "NVIDIA Corporation Common Stock",
+                 "iShares Semiconductor ETF", "SPDR S&P 500 ETF Trust", "Bullfrog AI Holdings", None):
+        assert not is_leveraged(name), name
