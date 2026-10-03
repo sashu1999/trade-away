@@ -68,6 +68,22 @@ tr:last-child td { border-bottom: 0; }
 td.reason { white-space: normal; min-width: 180px; color: var(--text-2); text-align: left; }
 .side { font-weight: 600; font-size: 12px; text-transform: uppercase; }
 .empty { color: var(--muted); padding: 16px 0; text-align: center; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 20px; }
+.tabs a { padding: 8px 14px; color: var(--text-2); text-decoration: none; font-weight: 500;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs a[aria-selected="true"] { color: var(--text); border-bottom-color: var(--s1); }
+[hidden] { display: none !important; }
+.about { max-width: 720px; }
+.about p, .about li { color: var(--text-2); }
+.about h2 { margin-top: 4px; }
+.about h3 { font-size: 15px; margin: 0 0 4px; }
+.about ul { padding-left: 20px; margin: 8px 0 0; }
+.about li { margin-bottom: 4px; }
+.botcard { border-top: 1px solid var(--border); padding: 14px 0; }
+.botcard:first-of-type { border-top: 0; padding-top: 4px; }
+.botcard dl { display: grid; grid-template-columns: 92px 1fr; gap: 4px 12px; margin: 8px 0 0; font-size: 14px; }
+.botcard dt { color: var(--muted); }
+.botcard dd { margin: 0; color: var(--text-2); }
 footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
 footer a { color: var(--text-2); }
 </style>
@@ -77,6 +93,74 @@ footer a { color: var(--text-2); }
   <h1>trade-away <span class="badge">Paper trading</span></h1>
   <p class="sub" id="updated">Loading the latest snapshot…</p>
 
+  <nav class="tabs" role="tablist">
+    <a href="#live" role="tab" id="tab-live" aria-controls="live" aria-selected="true">Live</a>
+    <a href="#about" role="tab" id="tab-about" aria-controls="about" aria-selected="false">About</a>
+  </nav>
+
+  <div id="about" role="tabpanel" aria-labelledby="tab-about" class="about" hidden>
+    <section class="card">
+      <h2>What this is</h2>
+      <p>trade-away is an experiment in building a trading bot that has to prove itself before it touches real money.
+        Four bots each follow one well-known trading method and trade side by side, so we can see which method actually works.
+        Later, an AI agent joins the race. It only goes further if it beats both these simple bots and plain buying and holding the S&amp;P 500.</p>
+      <p>Everything here is <strong>paper trading</strong>: real market prices, simulated money. The account started with $100,000,
+        split into $25,000 for each bot. No real money is involved.</p>
+    </section>
+
+    <section class="card">
+      <h2>The bots</h2>
+      <div class="botcard">
+        <h3><span class="dot" style="background:var(--s1)"></span>Trend</h3>
+        <p>Rides a trend once it's established. Prices that have been rising tend to keep rising for a while.</p>
+        <dl><dt>Buys</dt><dd>when the 20-day average price crosses above the 50-day average</dd>
+          <dt>Sells</dt><dd>when it crosses back below</dd>
+          <dt>Trades</dt><dd>US stocks, ETFs, Bitcoin and Ether</dd></dl>
+      </div>
+      <div class="botcard">
+        <h3><span class="dot" style="background:var(--s2)"></span>Dip buying</h3>
+        <p>Buys a sharp short drop in something that's still in a long uptrend, betting it bounces back within days.</p>
+        <dl><dt>Buys</dt><dd>when RSI(2), a measure of how hard it fell over 2 days, is under 10 and the price is above its 200-day average</dd>
+          <dt>Sells</dt><dd>when the price closes back above its 5-day average</dd>
+          <dt>Trades</dt><dd>US stocks, ETFs, Bitcoin and Ether</dd></dl>
+      </div>
+      <div class="botcard">
+        <h3><span class="dot" style="background:var(--s3)"></span>Breakout</h3>
+        <p>The "Turtle" method from the 1980s: buy when the price breaks out to a new high, on the idea that a big move is starting.</p>
+        <dl><dt>Buys</dt><dd>when the price closes above its highest point of the last 20 days</dd>
+          <dt>Sells</dt><dd>when it closes below its lowest point of the last 10 days</dd>
+          <dt>Trades</dt><dd>US stocks, ETFs, Bitcoin and Ether</dd></dl>
+      </div>
+      <div class="botcard">
+        <h3><span class="dot" style="background:var(--s4)"></span>Momentum</h3>
+        <p>Owns the recent winners. Stocks that beat the market over the past several months tend to keep doing so.</p>
+        <dl><dt>Buys</dt><dd>the 10 strongest of the most traded US stocks over the last 6 months (leaving out the latest month), if they're above their 200-day average</dd>
+          <dt>Sells</dt><dd>when a holding drops out of the top 30 or below its 200-day average</dd>
+          <dt>Trades</dt><dd>US stocks and ETFs</dd></dl>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Rules every bot follows</h2>
+      <ul>
+        <li>Every trade has a stop-loss, and is sized so hitting the stop costs about 1% of that bot's money.</li>
+        <li>No single holding is bigger than 10% of the bot's money, and a bot holds at most 10 at once.</li>
+        <li>A bot stops buying for the day after a 3% daily loss, and pauses after falling 15% from its peak.</li>
+        <li>No borrowing, no short selling, and no leveraged funds.</li>
+        <li>Only liquid stocks and ETFs: over $5 a share and over $20 million traded a day.</li>
+        <li>Only one bot can own a given stock at a time. Who gets first pick rotates daily.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>How it runs</h2>
+      <p>A small free cloud server runs the bots once a day after the US market closes, so stock orders fill at the next day's open.
+        Crypto trades every day, including weekends. The server updates this page every 30 minutes with real prices from the Alpaca paper trading account.</p>
+      <p>A few weeks or months of paper results prove very little, so treat any ranking here as early. Nothing on this page is investment advice.</p>
+    </section>
+  </div>
+
+  <div id="live" role="tabpanel" aria-labelledby="tab-live">
   <section class="stats" id="stats"></section>
 
   <section class="card">
@@ -100,6 +184,8 @@ footer a { color: var(--text-2); }
     <h2>Trades</h2>
     <div class="table-wrap" id="trades"></div>
   </section>
+
+  </div>
 
   <footer>
     Simulated trades on an Alpaca paper account starting with $100,000. No real money is involved and nothing here is investment advice.
@@ -220,12 +306,31 @@ function trades(rows) {
       <td class="l">${botTag(t.strategy)}</td><td class="reason">${esc(t.reason || "")}</td></tr>`).join("") + `</tbody></table>`;
 }
 
+function showTab() {
+  const about = location.hash === "#about";
+  document.getElementById("about").hidden = !about;
+  document.getElementById("live").hidden = about;
+  document.getElementById("tab-about").setAttribute("aria-selected", about);
+  document.getElementById("tab-live").setAttribute("aria-selected", !about);
+  if (!about && !window.chartDrawn && window.snapshot) drawLive();
+}
+window.addEventListener("hashchange", showTab);
+showTab();
+
+function drawLive() {
+  const d = window.snapshot;
+  if (document.getElementById("live").hidden) return;  // the chart needs a visible box to size itself
+  window.chartDrawn = true;
+  stats(d.summary); bots(d.bots || []); chart(d.bots || [], d.bot_benchmark || []); positions(d.positions); trades(d.trades);
+}
+
 fetch("data.json", { cache: "no-store" })
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then(d => {
     document.getElementById("updated").textContent =
       `Four trading bots racing on one paper account, followed live. Last updated ${fmtTime(d.generated_at)}.`;
-    stats(d.summary); bots(d.bots || []); chart(d.bots || [], d.bot_benchmark || []); positions(d.positions); trades(d.trades);
+    window.snapshot = d;
+    drawLive();
   })
   .catch(() => { document.getElementById("updated").textContent = "No snapshot has been published yet."; });
 </script>
