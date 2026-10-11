@@ -22,8 +22,16 @@ MAJOR_EXCHANGES = {"NYSE", "NASDAQ", "ARCA", "NYSEARCA", "AMEX", "BATS"}
 LEVERAGED = re.compile(r"\b-?\d(\.\d+)?x\b|ultra|leveraged|inverse|\bshort\b|\bbear\b|volatility|\bvix\b", re.I)
 
 
+# T-bill and money-market style funds: their price only creeps up, so "breakouts" in them mean nothing.
+CASH_LIKE = re.compile(r"t-bill|treasury bill|\b\d+-\d+ month\b|money market|floating rate", re.I)
+
+
 def is_leveraged(name: str | None) -> bool:
     return bool(name and LEVERAGED.search(name))
+
+
+def is_cash_like(name: str | None) -> bool:
+    return bool(name and CASH_LIKE.search(name))
 LOOKBACK_DAYS = 20
 CHUNK = 200
 
@@ -67,7 +75,7 @@ def fetch_tradable_symbols(settings: Settings) -> list[str]:
     return sorted(
         a.symbol for a in assets
         if a.tradable and str(getattr(a.exchange, "value", a.exchange)) in MAJOR_EXCHANGES
-        and not is_leveraged(a.name)
+        and not is_leveraged(a.name) and not is_cash_like(a.name)
     )
 
 

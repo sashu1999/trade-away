@@ -47,3 +47,13 @@ def test_leveraged_and_inverse_products_are_excluded():
     for name in ("Invesco QQQ Trust, Series 1", "NVIDIA Corporation Common Stock",
                  "iShares Semiconductor ETF", "SPDR S&P 500 ETF Trust", "Bullfrog AI Holdings", None):
         assert not is_leveraged(name), name
+
+
+def test_cash_like_funds_are_excluded():
+    from trade_away.universe import is_cash_like
+
+    for name in ("iShares 0-3 Month Treasury Bond ETF", "SPDR Bloomberg 1-3 Month T-Bill ETF",
+                 "WisdomTree Floating Rate Treasury Fund"):
+        assert is_cash_like(name), name
+    for name in ("iShares 20+ Year Treasury Bond ETF", "Invesco QQQ Trust, Series 1", None):
+        assert not is_cash_like(name), name

@@ -77,7 +77,7 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
                    benchmark: Iterable[tuple[str, float]], now: datetime,
                    starting_equity: float = STARTING_EQUITY, bots: Iterable[dict] = (),
                    bot_history: dict[str, list[tuple[str, float]]] | None = None,
-                   owners: dict[str, str] | None = None) -> dict:
+                   owners: dict[str, str] | None = None, closing: dict[str, str] | None = None) -> dict:
     """Assemble the public snapshot from plain data. Only fields listed here are published.
 
     account: equity, cash, last_equity. positions: symbol, asset_class, qty, avg_entry,
@@ -85,8 +85,10 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
     history: (date, equity), oldest first. decisions: order_id -> strategy, reason, stop.
     benchmark: (date, close) for SPY, oldest first. bots: bot, start, equity, positions per
     strategy bot. bot_history: bot -> (date, equity), oldest first. owners: symbol -> bot.
+    closing: symbol -> bot, for positions a bot has sold that the broker hasn't filled yet.
     """
     owners = owners or {}
+    closing = closing or {}
     bot_history = bot_history or {}
     benchmark = list(benchmark)
     equity = float(account["equity"])
@@ -108,7 +110,8 @@ def build_snapshot(account: dict, positions: Iterable[dict], fills: Iterable[dic
     pos_out = []
     for p in positions:
         pos_out.append({
-            "symbol": p["symbol"], "bot": owners.get(p["symbol"]), "asset_class": p["asset_class"], "qty": float(p["qty"]),
+            "symbol": p["symbol"], "bot": owners.get(p["symbol"]) or closing.get(p["symbol"]),
+            "closing": p["symbol"] in closing and p["symbol"] not in owners, "asset_class": p["asset_class"], "qty": float(p["qty"]),
             "avg_entry": _f(p["avg_entry"]), "price": _f(p["price"]),
             "market_value": round(float(p["market_value"]), 2),
             "weight": round(float(p["market_value"]) / equity, 4) if equity else None,
@@ -260,8 +263,11 @@ def fetch_snapshot(settings: Settings, store: Store, now: datetime | None = None
     for r in store.query("SELECT account, substr(ts, 1, 10) AS d, equity FROM equity_log ORDER BY ts"):
         bot_history[r["account"]].append((r["d"], float(r["equity"])))
     owners = {r["symbol"]: r["account"] for r in store.query("SELECT symbol, account FROM open_trades")}
+    # Sells placed after the close fill at the next open; until then the position is still at the broker.
+    closing = {r["symbol"]: r["account"] for r in
+               store.query("SELECT symbol, account FROM book_fills WHERE side = 'sell' AND filled = 0")}
     return build_snapshot(account, positions, fills, history, decisions, benchmark, now,
-                          bots=bots, bot_history=bot_history, owners=owners)
+                          bots=bots, bot_history=bot_history, owners=owners, closing=closing)
 
 
 def push_site(snapshot: dict, remote: str, branch: str = "gh-pages", token: str = "",

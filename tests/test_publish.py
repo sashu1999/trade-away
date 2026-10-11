@@ -92,3 +92,10 @@ def test_snapshot_bots_leaderboard():
     assert dip["closed_trades"] == 1 and dip["realized_pl"] == -100 and dip["win_rate"] == 0
     assert s["trades"][0]["reason"] == "stop-loss" and s["trades"][0]["strategy"] == "dip"
     assert s["bot_benchmark"][-1]["equity"] == 25_500
+
+
+def test_pending_sell_keeps_its_bot_on_the_page():
+    pos = [{"symbol": "LLY", "asset_class": "stock", "qty": "2", "avg_entry": "1150", "price": "1179",
+            "market_value": "2358", "unrealized_pl": "58"}]
+    s = build_snapshot({"equity": "100000", "cash": "97642"}, pos, [], [], {}, [], NOW, closing={"LLY": "dip"})
+    assert s["positions"][0]["bot"] == "dip" and s["positions"][0]["closing"] is True

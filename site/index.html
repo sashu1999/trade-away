@@ -290,7 +290,7 @@ function positions(rows) {
   const el = document.getElementById("positions");
   if (!rows.length) { el.innerHTML = `<p class="empty">No open positions right now.</p>`; return; }
   el.innerHTML = `<table><thead><tr><th>Symbol</th><th class="l">Bot</th><th>Quantity</th><th>Avg entry</th><th>Price</th><th>Value</th><th>Weight</th><th>Unrealized</th></tr></thead><tbody>` +
-    rows.map(p => `<tr><td><strong>${esc(p.symbol)}</strong></td><td class="l">${botTag(p.bot)}</td><td>${qty(p.qty)}</td><td>${money(p.avg_entry)}</td><td>${money(p.price)}</td>
+    rows.map(p => `<tr><td><strong>${esc(p.symbol)}</strong></td><td class="l">${botTag(p.bot)}${p.closing ? `<div class="desc">selling at next open</div>` : ""}</td><td>${qty(p.qty)}</td><td>${money(p.avg_entry)}</td><td>${money(p.price)}</td>
       <td>${money(p.market_value, 0)}</td><td>${pct(p.weight, false)}</td>
       <td class="${tone(p.unrealized_pl)}">${money(p.unrealized_pl)} (${pct(p.unrealized_pct)})</td></tr>`).join("") + `</tbody></table>`;
 }
