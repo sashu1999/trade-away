@@ -5,7 +5,7 @@ import pandas as pd
 from trade_away.backtest import run_backtest
 from trade_away.config import Settings
 from trade_away.db import BarRow, Store
-from trade_away.engine import Bot, book_state, check_stops, leaderboard, run_daily, sync_fills
+from trade_away.engine import Bot, book_state, check_stops, leaderboard, run_daily, similar_to, sync_fills
 from trade_away.execution import FakeBroker
 from trade_away.strategies import TrendFollowing
 
@@ -153,3 +153,25 @@ def test_backtest_mixed_calendars_fill_exits():
     assert all(t.exit_reason != "stop" for t in stock_trades)
     # one equity point per calendar day, not two
     assert result.equity.index.is_unique and (result.equity.index == result.equity.index.normalize()).all()
+
+
+def test_similar_to_finds_holdings_that_move_together():
+    import numpy as np
+    rng = np.random.default_rng(0)
+    base = 100 * np.cumprod(1 + rng.normal(0, 0.02, 80))
+    other = 100 * np.cumprod(1 + rng.normal(0, 0.02, 80))
+    bars = {"A": series_frame(base), "TWIN": series_frame(base * 1.5), "OTHER": series_frame(other)}
+    assert similar_to("A", ["TWIN", "OTHER", "MISSING"], bars) == ("TWIN",)
+
+
+def test_paused_bot_makes_no_new_entries():
+    closes = [100 - i for i in range(30)] + [70 + 2 * i for i in range(1, 22)]
+    store, df = _store_with_bars("UP", closes)
+    store.replace_universe("2026-07-21", [("UP", closes[-1], 1e9)])
+    strat = TrendFollowing(fast=5, slow=10)
+    fire = next(i for i in range(12, len(df) + 1) if (s := strat.evaluate("UP", df.iloc[:i], False)) and s.side == "buy")
+    store.execute("DELETE FROM bars WHERE ts > ?", (df.index[fire - 1].isoformat(),))
+    broker = FakeBroker(prices={"UP": closes[fire - 1]})
+    actions = run_daily(Settings(crypto_symbols=[]), store, broker, bots=(Bot(strat, paused=True),),
+                        now=df.index[fire - 1].to_pydatetime())
+    assert actions == [] and broker.orders == []

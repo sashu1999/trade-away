@@ -17,6 +17,7 @@ class RiskLimits:
     max_stock_exposure: float = 0.80    # of equity
     max_crypto_exposure: float = 0.30   # of equity
     max_positions: int = 10
+    max_similar: int = 3                # held positions that move with a new buy (stand-in for a sector cap)
     daily_loss_limit: float = 0.03      # no new entries after losing this much today
     max_drawdown: float = 0.15          # from peak equity: pause and wait for a human
     max_data_age: timedelta = timedelta(days=4)  # daily strategies; a weekend plus a holiday
@@ -57,6 +58,7 @@ class OrderRequest:
     data_ts: datetime
     strategy: str
     reason: str
+    similar_held: tuple[str, ...] = ()  # held symbols whose returns closely track this one
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,9 @@ class RiskManager:
             return _reject("already holding this symbol")
         if len(state.positions) >= lim.max_positions:
             return _reject(f"already at {lim.max_positions} open positions")
+        if len(order.similar_held) >= lim.max_similar:
+            return _reject(f"already holding {len(order.similar_held)} that move with it: "
+                           + ", ".join(order.similar_held))
 
         qty = state.equity * lim.risk_per_trade / (order.price - order.stop)
         reasons = []

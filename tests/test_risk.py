@@ -64,3 +64,11 @@ def test_no_shorting():
 def test_custom_limits():
     d = RiskManager(RiskLimits(risk_per_trade=0.005)).check(buy(price=100, stop=80), state(), NOW)
     assert d.qty == 25
+
+
+def test_caps_holdings_that_move_together():
+    order = OrderRequest("NVDA", "stock", "buy", 100, 95, NOW, "dip", "test", ("AMD", "MU", "TSM"))
+    d = RiskManager().check(order, state(), NOW)
+    assert not d.approved and "move with it" in d.reason
+    two = OrderRequest("NVDA", "stock", "buy", 100, 95, NOW, "dip", "test", ("AMD", "MU"))
+    assert RiskManager().check(two, state(), NOW).approved

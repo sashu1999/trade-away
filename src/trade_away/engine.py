@@ -6,6 +6,9 @@ in `book_fills`; its positions are its rows in `open_trades`, valued at the
 broker's prices. Every order still goes through the hard risk layer, checked
 against that bot's book. A symbol belongs to one bot at a time: the others skip
 it while it's held, since the broker account can only hold one position per symbol.
+A bot can also be capped at a few holdings that move together (`similar_to`), so
+one sector's selloff can't stop out a whole book at once, and a paused bot only
+manages the positions it already has.
 
 `run_daily` runs once after the US close (cron). For each bot it handles exits
 first, then new entries, and journals every idea whether or not the risk layer
@@ -14,6 +17,7 @@ Alpaca cannot attach to crypto orders.
 """
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -21,11 +25,13 @@ from .backtest import frame_from_rows
 from .config import Settings
 from .db import Store, to_iso
 from .execution import Broker
+from .indicators import return_correlation
 from .risk import AccountState, OrderRequest, Position, RiskDecision, RiskLimits, RiskManager
 from .strategies import Breakout, DipBuying, Momentum, Strategy, TrendFollowing, prepare
 
 log = logging.getLogger(__name__)
 BOOK_EQUITY = 25_000.0
+SIMILAR_CORRELATION = 0.7  # 60-day daily-return correlation that counts as "moves together"
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,7 @@ class Bot:
     stocks: bool = True
     crypto: bool = True
     start: float = BOOK_EQUITY
+    paused: bool = False  # no new entries; exits and stops still run
 
     @property
     def name(self) -> str:
@@ -44,8 +51,20 @@ BOTS: tuple[Bot, ...] = (
     Bot(TrendFollowing()),
     Bot(DipBuying()),
     Bot(Breakout()),
-    Bot(Momentum(), crypto=False),  # ranks stocks against each other
+    Bot(Momentum(), crypto=False, paused=True),  # ranks stocks against each other; paused 2026-11-18 after -11.5%
 )
+
+
+def similar_to(symbol: str, held: Iterable[str], bars: dict, threshold: float = SIMILAR_CORRELATION) -> tuple[str, ...]:
+    """Held symbols whose daily returns track `symbol`'s closely."""
+    if symbol not in bars:
+        return ()
+    out = []
+    for other in held:
+        if other in bars and (c := return_correlation(bars[symbol]["close"], bars[other]["close"])) is not None \
+                and c >= threshold:
+            out.append(other)
+    return tuple(out)
 
 
 @dataclass(frozen=True)
@@ -189,6 +208,8 @@ def run_daily(settings: Settings, store: Store, broker: Broker, *, bots: tuple[B
         # Entries: universe in liquidity order, then crypto. A symbol another bot holds is off limits.
         candidates = [] if crypto_only or not bot.stocks else [(s, "stock") for s in universe]
         candidates += [(s, "crypto") for s in settings.crypto_symbols] if bot.crypto else []
+        if bot.paused:
+            candidates = []
         for symbol, asset_class in candidates:
             df = bars.get(symbol)
             if df is None or symbol in owners or symbol in broker_state.positions:
@@ -196,7 +217,8 @@ def run_daily(settings: Settings, store: Store, broker: Broker, *, bots: tuple[B
             signal = strat.evaluate(symbol, df, in_position=False)
             if not signal or signal.side != "buy":
                 continue
-            req = OrderRequest(symbol, asset_class, "buy", signal.price, signal.stop, df.index[-1], bot.name, signal.reason)
+            req = OrderRequest(symbol, asset_class, "buy", signal.price, signal.stop, df.index[-1], bot.name,
+                               signal.reason, similar_to(symbol, state.positions, bars))
             decision = risk.check(req, state, now)
             order_id = None
             if decision.approved:

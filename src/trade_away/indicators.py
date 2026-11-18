@@ -23,3 +23,12 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Se
     prev = close.shift()
     true_range = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
     return true_range.ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+
+
+def return_correlation(a: pd.Series, b: pd.Series, n: int = 60) -> float | None:
+    """Correlation of daily returns over the last `n` shared days; None if there is too little overlap."""
+    joined = pd.concat([a.pct_change(), b.pct_change()], axis=1, join="inner").dropna().tail(n)
+    if len(joined) < n // 2:
+        return None
+    value = joined.iloc[:, 0].corr(joined.iloc[:, 1])
+    return None if pd.isna(value) else float(value)
