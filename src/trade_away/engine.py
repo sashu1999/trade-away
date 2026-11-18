@@ -32,6 +32,7 @@ from .strategies import Breakout, DipBuying, Momentum, Strategy, TrendFollowing,
 log = logging.getLogger(__name__)
 BOOK_EQUITY = 25_000.0
 SIMILAR_CORRELATION = 0.7  # 60-day daily-return correlation that counts as "moves together"
+SAME_CORRELATION = 0.95    # so close it's the same bet (SPY, VOO and IVV all track the S&P 500)
 
 
 @dataclass(frozen=True)
@@ -218,7 +219,8 @@ def run_daily(settings: Settings, store: Store, broker: Broker, *, bots: tuple[B
             if not signal or signal.side != "buy":
                 continue
             req = OrderRequest(symbol, asset_class, "buy", signal.price, signal.stop, df.index[-1], bot.name,
-                               signal.reason, similar_to(symbol, state.positions, bars))
+                               signal.reason, similar_to(symbol, state.positions, bars),
+                               similar_to(symbol, state.positions, bars, SAME_CORRELATION))
             decision = risk.check(req, state, now)
             order_id = None
             if decision.approved:

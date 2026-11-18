@@ -72,3 +72,9 @@ def test_caps_holdings_that_move_together():
     assert not d.approved and "move with it" in d.reason
     two = OrderRequest("NVDA", "stock", "buy", 100, 95, NOW, "dip", "test", ("AMD", "MU"))
     assert RiskManager().check(two, state(), NOW).approved
+
+
+def test_rejects_a_near_copy_of_a_holding():
+    order = OrderRequest("VOO", "stock", "buy", 100, 95, NOW, "dip", "test", ("SPY",), ("SPY",))
+    d = RiskManager().check(order, state(), NOW)
+    assert not d.approved and "same bet" in d.reason

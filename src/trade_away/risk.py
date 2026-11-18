@@ -59,6 +59,7 @@ class OrderRequest:
     strategy: str
     reason: str
     similar_held: tuple[str, ...] = ()  # held symbols whose returns closely track this one
+    same_held: tuple[str, ...] = ()     # held symbols that are effectively the same position
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,8 @@ class RiskManager:
             return _reject("already holding this symbol")
         if len(state.positions) >= lim.max_positions:
             return _reject(f"already at {lim.max_positions} open positions")
+        if order.same_held:
+            return _reject("already holding the same bet: " + ", ".join(order.same_held))
         if len(order.similar_held) >= lim.max_similar:
             return _reject(f"already holding {len(order.similar_held)} that move with it: "
                            + ", ".join(order.similar_held))
