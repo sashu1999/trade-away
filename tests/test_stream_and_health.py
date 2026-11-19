@@ -43,3 +43,16 @@ def test_no_gaps_when_every_minute_present():
     for m in range(61):
         asyncio.run(rec.on_bar(fake_bar("BTC/USD", T0 + timedelta(minutes=m), 1)))
     assert crypto_gaps(store, ["BTC/USD"], hours=1, now=T0 + timedelta(hours=1)) == []
+
+
+def test_healthcheck_ping_only_when_configured(monkeypatch):
+    from trade_away import cli
+
+    calls = []
+    monkeypatch.setattr(cli.urllib.request, "urlopen", lambda url, timeout: calls.append(url))
+    monkeypatch.delenv("HEALTHCHECK_RUN_URL", raising=False)
+    cli.ping("run")
+    assert calls == []
+    monkeypatch.setenv("HEALTHCHECK_RUN_URL", "https://hc-ping.com/abc/")
+    cli.ping("run", "/fail")
+    assert calls == ["https://hc-ping.com/abc/fail"]

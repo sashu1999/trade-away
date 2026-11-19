@@ -2,9 +2,11 @@
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
+import urllib.request
 
 from .config import load_settings
 from .db import Store
@@ -156,6 +158,20 @@ def cmd_publish(settings, store, args) -> None:
           f"{'' if args.no_push else ' -> published'}")
 
 
+def cmd_luck(settings, store, args) -> None:
+    from .luck import run_luck
+
+    reports = run_luck(store, top_n=args.top, sims=args.sims)
+    if not reports:
+        sys.exit("no trades with price history yet")
+    print(f"{'bot':10} {'trades':>6} {'avg trade':>10} {'random':>8} {'SPY':>8} {'beat':>6}  verdict")
+    for r in reports:
+        spy = f"{r.spy_mean:+8.2%}" if r.spy_mean is not None else f"{'':>8}"
+        print(f"{r.account:10} {r.trades:>6} {r.mean_return:+10.2%} {r.random_mean:+8.2%} {spy} "
+              f"{r.percentile:>6.0%}  {r.verdict}")
+    print("beat = share of random-pick books (same dates, random stock) this bot's average trade beat")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="trade-away")
     sub = p.add_subparsers(dest="command", required=True)
@@ -185,14 +201,32 @@ def build_parser() -> argparse.ArgumentParser:
     pub = sub.add_parser("publish", help="push a public snapshot of the paper account to GitHub Pages")
     pub.add_argument("--out", help="also write the snapshot JSON to this file")
     pub.add_argument("--no-push", action="store_true", help="build the snapshot without pushing it")
+    lk = sub.add_parser("luck", help="luck or skill: each bot's picks against random picks on the same dates")
+    lk.add_argument("--top", type=int, default=100)
+    lk.add_argument("--sims", type=int, default=2000)
     return p
+
+
+def ping(command: str, suffix: str = "") -> None:
+    """Tell Healthchecks.io a job ran (or failed), so a missed or broken run raises an alert.
+
+    Set HEALTHCHECK_<COMMAND>_URL in .env (e.g. HEALTHCHECK_RUN_URL) to a free check's ping URL.
+    A ping that can't get through never stops the job itself.
+    """
+    url = os.environ.get(f"HEALTHCHECK_{command.upper()}_URL")
+    if not url:
+        return
+    try:
+        urllib.request.urlopen(url.rstrip("/") + suffix, timeout=10)
+    except OSError as exc:
+        logging.getLogger(__name__).warning("healthcheck ping failed: %s", exc)
 
 
 COMMANDS = {
     "check": cmd_check, "screen": cmd_screen, "backfill": cmd_backfill,
     "stream": cmd_stream, "news": cmd_news, "health": cmd_health,
     "backtest": cmd_backtest, "run": cmd_run, "stops": cmd_stops,
-    "publish": cmd_publish, "bots": cmd_bots,
+    "publish": cmd_publish, "bots": cmd_bots, "luck": cmd_luck,
 }
 
 
@@ -201,8 +235,15 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     settings = load_settings()
     store = Store(settings.db_path)
+    ping(args.command, "/start")
     try:
         COMMANDS[args.command](settings, store, args)
+    except BaseException as exc:
+        if not isinstance(exc, SystemExit) or exc.code not in (None, 0):
+            ping(args.command, "/fail")
+        raise
+    else:
+        ping(args.command)
     finally:
         store.close()
 
