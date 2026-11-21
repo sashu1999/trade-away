@@ -28,7 +28,7 @@ STARTING_EQUITY = 100_000.0
 MAX_TRADES = 200
 BOT_INFO = {
     "trend": "Buys when the 20-day average crosses above the 50-day, sells when it crosses back",
-    "dip": "Buys a sharp 2-day drop (RSI(2) under 10) in an uptrend, sells the bounce",
+    "dip": "Buys a sharp 2-day drop (RSI(2) under 10) in an uptrend, sells the bounce (paused Nov 21: no new buys)",
     "breakout": "Buys a new 20-day high, sells a new 10-day low",
     "momentum": "Holds the 10 strongest stocks of the last 6 months (paused Nov 18: no new buys)",
 }

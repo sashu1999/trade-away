@@ -50,7 +50,7 @@ class Bot:
 
 BOTS: tuple[Bot, ...] = (
     Bot(TrendFollowing()),
-    Bot(DipBuying()),
+    Bot(DipBuying(), paused=True),  # paused 2026-11-21: past its 15% loss limit, worse than random picks
     Bot(Breakout()),
     Bot(Momentum(), crypto=False, paused=True),  # ranks stocks against each other; paused 2026-11-18 after -11.5%
 )
