@@ -142,8 +142,10 @@ def cmd_run(settings, store, args) -> None:
 def cmd_stops(settings, store, args) -> None:
     from .engine import check_stops
     from .execution import AlpacaPaperBroker
+    from .stream import poll_crypto_prices
 
     _require_keys(settings)
+    poll_crypto_prices(settings, store)  # don't depend on the websocket being up
     closed = check_stops(settings, store, AlpacaPaperBroker(settings))
     print(f"stopped out: {', '.join(closed)}" if closed else "no stops hit")
 

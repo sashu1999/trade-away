@@ -74,3 +74,32 @@ def start_streams(settings: Settings, store: Store, stock_symbols: list[str]) ->
         threads.append(_run(crypto, "crypto"))
         log.info("streaming crypto: %s", ", ".join(settings.crypto_symbols))
     return threads
+
+
+def poll_crypto_prices(settings: Settings, store: Store, fetch=None) -> list[str]:
+    """Fetch the latest trade for every crypto symbol a bot holds, over plain HTTPS.
+
+    A fallback for when the websocket is down, so `stops` always has a fresh price.
+    `fetch(symbols) -> {symbol: (ts, price)}`; tests pass their own.
+    """
+    held = [r["symbol"] for r in store.query("SELECT DISTINCT symbol FROM open_trades")
+            if r["symbol"] in settings.crypto_symbols]
+    if not held:
+        return []
+    if fetch is None:
+        from alpaca.data.historical import CryptoHistoricalDataClient
+        from alpaca.data.requests import CryptoLatestTradeRequest
+
+        client = CryptoHistoricalDataClient(settings.api_key, settings.secret_key)
+
+        def fetch(symbols):
+            trades = client.get_crypto_latest_trade(CryptoLatestTradeRequest(symbol_or_symbols=symbols))
+            return {s: (t.timestamp, float(t.price)) for s, t in trades.items()}
+    try:
+        latest = fetch(held)
+    except Exception:  # the stop check still runs on whatever price is stored
+        log.exception("crypto price poll failed")
+        return []
+    for symbol, (ts, price) in latest.items():
+        store.set_latest_price(symbol, "crypto", ts, price)
+    return sorted(latest)

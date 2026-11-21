@@ -56,3 +56,30 @@ def test_healthcheck_ping_only_when_configured(monkeypatch):
     monkeypatch.setenv("HEALTHCHECK_RUN_URL", "https://hc-ping.com/abc/")
     cli.ping("run", "/fail")
     assert calls == ["https://hc-ping.com/abc/fail"]
+
+
+def test_poll_crypto_prices_updates_only_held_crypto():
+    from datetime import datetime, timezone
+
+    from trade_away.config import Settings
+    from trade_away.db import Store
+    from trade_away.stream import poll_crypto_prices
+
+    store = Store(":memory:")
+    store.execute("INSERT INTO open_trades VALUES ('trend','BTC/USD','trend','2026-10-01',60000,0.1,55000)")
+    store.execute("INSERT INTO open_trades VALUES ('trend','AAPL','trend','2026-10-01',100,1,90)")
+    asked = []
+    now = datetime(2026, 11, 21, tzinfo=timezone.utc)
+
+    def fetch(symbols):
+        asked.append(symbols)
+        return {s: (now, 54_000.0) for s in symbols}
+
+    assert poll_crypto_prices(Settings(), store, fetch) == ["BTC/USD"]
+    assert asked == [["BTC/USD"]]
+    assert store.query("SELECT price FROM latest_prices WHERE symbol = 'BTC/USD'")[0]["price"] == 54_000.0
+
+    def broken(symbols):
+        raise ConnectionError("down")
+
+    assert poll_crypto_prices(Settings(), store, broken) == []
