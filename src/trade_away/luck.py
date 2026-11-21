@@ -65,6 +65,14 @@ def round_trips(store: Store, closes: dict[str, pd.DataFrame]) -> list[RoundTrip
         elif key in entries:
             start, price = entries.pop(key)
             out.append(RoundTrip(*key, start, day, float(f["price"]) / price - 1, False))
+    # Record-only bots (the news bot) keep their would-be trades in shadow_trades.
+    for t in store.query("SELECT account, symbol, entry_day, entry, exit_day, exit FROM shadow_trades"):
+        start = pd.Timestamp(t["entry_day"], tz="UTC")
+        if t["exit_day"]:
+            out.append(RoundTrip(t["account"], t["symbol"], start, pd.Timestamp(t["exit_day"], tz="UTC"),
+                                 t["exit"] / t["entry"] - 1, False))
+        else:
+            entries[(t["account"], t["symbol"])] = (start, t["entry"])
     for (account, symbol), (start, price) in entries.items():
         df = closes.get(symbol)
         if df is not None and not df.empty:
@@ -109,7 +117,7 @@ def evaluate(trips: list[RoundTrip], closes: dict[str, pd.DataFrame], benchmark:
 
 def run_luck(store: Store, top_n: int = 100, sims: int = 2000) -> list[LuckReport]:
     symbols = set(store.latest_universe(limit=top_n)) | {"SPY"}
-    traded = {r["symbol"] for r in store.query("SELECT DISTINCT symbol FROM book_fills")}
+    traded = {r["symbol"] for r in store.query("SELECT symbol FROM book_fills UNION SELECT symbol FROM shadow_trades")}
     closes = {s: frame_from_rows(store.daily_bars(s, limit=400)) for s in symbols | traded}
     pool = {s: df for s, df in closes.items() if s in symbols}
     return evaluate(round_trips(store, closes), pool, sims=sims)

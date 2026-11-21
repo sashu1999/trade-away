@@ -93,6 +93,30 @@ CREATE TABLE IF NOT EXISTS book_fills (
     filled   INTEGER NOT NULL DEFAULT 0
 );
 
+-- The news bot's nightly rating of each symbol's headlines (-2 very bad .. +2 very good).
+CREATE TABLE IF NOT EXISTS news_scores (
+    day     TEXT NOT NULL,              -- the US trading day the headlines are about
+    symbol  TEXT NOT NULL,
+    score   INTEGER NOT NULL,
+    reason  TEXT,
+    model   TEXT NOT NULL,
+    PRIMARY KEY (day, symbol)
+);
+
+-- Record-only trades: what a bot would have done, with no order sent.
+CREATE TABLE IF NOT EXISTS shadow_trades (
+    account     TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    entry_day   TEXT NOT NULL,
+    entry       REAL NOT NULL,
+    stop        REAL NOT NULL,
+    exit_day    TEXT,                   -- NULL while open
+    exit        REAL,
+    exit_reason TEXT,
+    reason      TEXT,
+    PRIMARY KEY (account, symbol, entry_day)
+);
+
 CREATE TABLE IF NOT EXISTS equity_log (
     account TEXT NOT NULL,
     ts      TEXT NOT NULL,

@@ -174,6 +174,17 @@ def cmd_luck(settings, store, args) -> None:
     print("beat = share of random-pick books (same dates, random stock) this bot's average trade beat")
 
 
+def cmd_newsbot(settings, store, args) -> None:
+    from .newsbot import run_night, scorer_from_env
+
+    scorer, model = scorer_from_env()
+    r = run_night(store, scorer, top_n=args.top, model=model, dry_run=args.dry_run)
+    if r.skipped:
+        print(f"skipped scoring: {r.skipped}")
+    print(f"{r.day}: scored {r.scored} symbols with news; would buy {', '.join(r.opened) or 'nothing'}; "
+          f"would sell {', '.join(r.closed) or 'nothing'}{' (dry run)' if args.dry_run else ''}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="trade-away")
     sub = p.add_subparsers(dest="command", required=True)
@@ -206,6 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
     lk = sub.add_parser("luck", help="luck or skill: each bot's picks against random picks on the same dates")
     lk.add_argument("--top", type=int, default=100)
     lk.add_argument("--sims", type=int, default=2000)
+    nb = sub.add_parser("newsbot", help="record-only news bot: rate today's headlines, log would-be trades")
+    nb.add_argument("--top", type=int, default=100)
+    nb.add_argument("--dry-run", action="store_true")
     return p
 
 
@@ -228,7 +242,7 @@ COMMANDS = {
     "check": cmd_check, "screen": cmd_screen, "backfill": cmd_backfill,
     "stream": cmd_stream, "news": cmd_news, "health": cmd_health,
     "backtest": cmd_backtest, "run": cmd_run, "stops": cmd_stops,
-    "publish": cmd_publish, "bots": cmd_bots, "luck": cmd_luck,
+    "publish": cmd_publish, "bots": cmd_bots, "luck": cmd_luck, "newsbot": cmd_newsbot,
 }
 
 
