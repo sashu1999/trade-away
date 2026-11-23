@@ -95,3 +95,15 @@ def test_groq_request_sets_its_own_user_agent(monkeypatch):
     monkeypatch.setattr(newsbot.urllib.request, "urlopen", fake_urlopen)
     newsbot.groq_scorer("k")({"AAA": ["headline"]})
     assert seen["ua"] and not seen["ua"].startswith("Python-urllib")
+
+
+def test_news_snapshot_for_the_public_page():
+    from trade_away.newsbot import news_snapshot
+
+    store = _store()
+    run_night(store, lambda news: {"UP": (2, "beat"), "DOWN": (-1, "weak")}, now=NOW)
+    snap = news_snapshot(store)
+    assert snap["last_rated_day"] == "2026-11-20" and snap["rated"] == 2
+    assert [r["symbol"] for r in snap["ratings"]] == ["UP", "DOWN"]
+    assert snap["open"] == 1 and snap["closed"] == 0 and snap["trades"][0]["symbol"] == "UP"
+    assert snap["verdict"] in (None, "too few trades to judge")

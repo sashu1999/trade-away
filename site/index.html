@@ -175,6 +175,16 @@ footer a { color: var(--text-2); }
     <div class="chart" id="chart"><div class="tip" id="tip"></div></div>
   </section>
 
+  <section class="card" id="newsbot-card" hidden>
+    <h2>News bot (record-only)</h2>
+    <p class="desc" style="margin:-6px 0 12px">Each night a free AI model rates every stock's news from −2 to +2. On a +2 in an uptrend it <em>records</em> a buy; no order is sent. It gets real money only if its picks beat random picks.</p>
+    <div id="newsbot-summary" class="desc" style="margin-bottom:12px"></div>
+    <h3 style="font-size:15px;margin:16px 0 8px">Would-be trades</h3>
+    <div class="table-wrap" id="newsbot-trades"></div>
+    <h3 style="font-size:15px;margin:16px 0 8px">Latest news ratings</h3>
+    <div class="table-wrap" id="newsbot-ratings"></div>
+  </section>
+
   <section class="card">
     <h2>Open positions</h2>
     <div class="table-wrap" id="positions"></div>
@@ -306,6 +316,27 @@ function trades(rows) {
       <td class="l">${botTag(t.strategy)}</td><td class="reason">${esc(t.reason || "")}</td></tr>`).join("") + `</tbody></table>`;
 }
 
+function newsbot(n) {
+  if (!n) return;
+  document.getElementById("newsbot-card").hidden = false;
+  const verdict = n.verdict ? ` Luck check: beat ${pct(n.beat_random, false)} of random picks, ${esc(n.verdict)}.` : "";
+  document.getElementById("newsbot-summary").innerHTML = n.last_rated_day
+    ? `Last rated ${fmtDate(n.last_rated_day)}: ${n.rated} stocks. ${n.open} open, ${n.closed} closed would-be trades` +
+      (n.avg_return == null ? "." : `, average ${pct(n.avg_return)} (SPY on the same dates ${pct(n.spy_same_dates)}).`) + verdict
+    : "It hasn't rated any news yet. It runs after the US close, Monday to Friday.";
+  const t = document.getElementById("newsbot-trades");
+  t.innerHTML = !n.trades.length ? `<p class="empty">No would-be trades yet.</p>` :
+    `<table><thead><tr><th class="l">Symbol</th><th>Bought</th><th>At</th><th>Sold</th><th>Now / sold at</th><th>Return</th><th class="l">Why</th></tr></thead><tbody>` +
+    n.trades.map(r => `<tr><td class="l"><strong>${esc(r.symbol)}</strong></td><td>${fmtDate(r.entry_day)}</td><td>${money(r.entry)}</td>
+      <td>${r.exit_day ? fmtDate(r.exit_day) : "open"}</td><td>${money(r.price)}</td><td class="${tone(r.return)}">${pct(r.return)}</td>
+      <td class="reason">${esc(r.exit_reason ? r.reason + " · sold: " + r.exit_reason : r.reason)}</td></tr>`).join("") + `</tbody></table>`;
+  const g = document.getElementById("newsbot-ratings");
+  g.innerHTML = !n.ratings.length ? `<p class="empty">No ratings yet.</p>` :
+    `<table><thead><tr><th class="l">Symbol</th><th>Rating</th><th class="l">Why</th></tr></thead><tbody>` +
+    n.ratings.map(r => `<tr><td class="l"><strong>${esc(r.symbol)}</strong></td><td class="${tone(r.score)}">${r.score > 0 ? "+" : ""}${r.score}</td>
+      <td class="reason">${esc(r.reason)}</td></tr>`).join("") + `</tbody></table>`;
+}
+
 function showTab() {
   const about = location.hash === "#about";
   document.getElementById("about").hidden = !about;
@@ -321,7 +352,7 @@ function drawLive() {
   const d = window.snapshot;
   if (document.getElementById("live").hidden) return;  // the chart needs a visible box to size itself
   window.chartDrawn = true;
-  stats(d.summary); bots(d.bots || []); chart(d.bots || [], d.bot_benchmark || []); positions(d.positions); trades(d.trades);
+  stats(d.summary); bots(d.bots || []); chart(d.bots || [], d.bot_benchmark || []); positions(d.positions); trades(d.trades); newsbot(d.news_bot);
 }
 
 fetch("data.json", { cache: "no-store" })

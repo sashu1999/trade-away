@@ -266,8 +266,14 @@ def fetch_snapshot(settings: Settings, store: Store, now: datetime | None = None
     # Sells placed after the close fill at the next open; until then the position is still at the broker.
     closing = {r["symbol"]: r["account"] for r in
                store.query("SELECT symbol, account FROM book_fills WHERE side = 'sell' AND filled = 0")}
-    return build_snapshot(account, positions, fills, history, decisions, benchmark, now,
+    snap = build_snapshot(account, positions, fills, history, decisions, benchmark, now,
                           bots=bots, bot_history=bot_history, owners=owners, closing=closing)
+    try:
+        from .newsbot import news_snapshot
+        snap["news_bot"] = news_snapshot(store)
+    except Exception:  # the page still publishes without this section
+        log.exception("news bot snapshot failed")
+    return snap
 
 
 def push_site(snapshot: dict, remote: str, branch: str = "gh-pages", token: str = "",

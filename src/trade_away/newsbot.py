@@ -190,3 +190,35 @@ def scorer_from_env() -> tuple[Scorer | None, str]:
     model = os.environ.get("NEWS_MODEL", DEFAULT_MODEL)
     key = os.environ.get("GROQ_API_KEY")
     return (groq_scorer(key, model) if key else None), model
+
+
+def news_snapshot(store: Store, top_n: int = 100) -> dict:
+    """What the public page shows for the news bot: last night's ratings and its record-only trades."""
+    from .luck import run_luck
+
+    last = store.query("SELECT MAX(day) AS day FROM news_scores")[0]["day"]
+    ratings = [] if not last else [
+        {"symbol": r["symbol"], "score": r["score"], "reason": r["reason"]}
+        for r in store.query("SELECT symbol, score, reason FROM news_scores WHERE day = ? "
+                             "ORDER BY ABS(score) DESC, score DESC, symbol LIMIT 15", (last,))]
+    rated = store.query("SELECT COUNT(*) AS n FROM news_scores WHERE day = ?", (last,))[0]["n"] if last else 0
+    trades = []
+    for t in store.query("SELECT * FROM shadow_trades WHERE account = ? ORDER BY entry_day DESC LIMIT 50", (ACCOUNT,)):
+        price = t["exit"]
+        if price is None:
+            bars = store.daily_bars(t["symbol"], limit=1)
+            price = float(bars[-1]["close"]) if bars else t["entry"]
+        trades.append({"symbol": t["symbol"], "entry_day": t["entry_day"], "entry": round(t["entry"], 2),
+                       "exit_day": t["exit_day"], "price": round(price, 2), "return": round(price / t["entry"] - 1, 4),
+                       "exit_reason": t["exit_reason"], "reason": t["reason"]})
+    closed = [t for t in trades if t["exit_day"]]
+    luck = next((r for r in run_luck(store, top_n=top_n, sims=1000) if r.account == ACCOUNT), None)
+    return {
+        "last_rated_day": last, "rated": rated, "ratings": ratings, "trades": trades,
+        "open": len(trades) - len(closed), "closed": len(closed),
+        "win_rate": round(sum(t["return"] > 0 for t in closed) / len(closed), 4) if closed else None,
+        "avg_return": round(sum(t["return"] for t in trades) / len(trades), 4) if trades else None,
+        "spy_same_dates": round(luck.spy_mean, 4) if luck and luck.spy_mean is not None else None,
+        "beat_random": round(luck.percentile, 4) if luck else None,
+        "verdict": luck.verdict if luck else None,
+    }
