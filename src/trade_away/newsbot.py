@@ -40,6 +40,7 @@ MAX_OPEN = 10
 MAX_SYMBOLS = 60          # per night, most-covered first, to stay inside free-tier limits
 MAX_HEADLINES = 6         # per symbol
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+USER_AGENT = "trade-away/0.1"
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 PROMPT = """You rate how today's news affects each stock's price over the next two weeks.
@@ -101,7 +102,9 @@ def groq_scorer(api_key: str, model: str = DEFAULT_MODEL, batch: int = 20) -> Sc
             chunk = {s: news[s] for s in symbols[i:i + batch]}
             body = PROMPT + "\n".join(f"{s}:\n" + "\n".join(f"  - {h}" for h in hs) for s, hs in chunk.items())
             req = urllib.request.Request(GROQ_URL, method="POST", headers={
-                "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                "Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                # Groq's Cloudflare front rejects Python's default User-Agent (HTTP 403, error 1010).
+                "User-Agent": USER_AGENT},
                 data=json.dumps({"model": model, "temperature": 0, "response_format": {"type": "json_object"},
                                  "messages": [{"role": "user", "content": body}]}).encode())
             with urllib.request.urlopen(req, timeout=60) as resp:

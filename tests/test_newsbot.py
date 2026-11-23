@@ -76,3 +76,22 @@ def test_no_key_or_failed_model_skips_the_night():
 
     r = run_night(store, down, now=NOW)
     assert r.skipped.startswith("scoring failed") and r.opened == []
+
+
+def test_groq_request_sets_its_own_user_agent(monkeypatch):
+    # Python's default "Python-urllib" agent gets HTTP 403 (Cloudflare 1010) from Groq.
+    import io
+    import json as _json
+
+    from trade_away import newsbot
+
+    seen = {}
+
+    def fake_urlopen(req, timeout):
+        seen["ua"] = req.get_header("User-agent")
+        reply = {"choices": [{"message": {"content": _json.dumps({"AAA": {"score": 1, "reason": "x"}})}}]}
+        return io.BytesIO(_json.dumps(reply).encode())
+
+    monkeypatch.setattr(newsbot.urllib.request, "urlopen", fake_urlopen)
+    newsbot.groq_scorer("k")({"AAA": ["headline"]})
+    assert seen["ua"] and not seen["ua"].startswith("Python-urllib")
